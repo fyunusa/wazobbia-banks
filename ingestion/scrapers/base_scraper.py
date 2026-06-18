@@ -382,6 +382,22 @@ class BaseScraper(ABC):
 
         return b"", 500
 
+    async def _resolve_redirect(self, url: str) -> str:
+        """Resolves HTTP redirects (e.g. Google News articles) to find the final landing URL."""
+        if "news.google.com" not in url:
+            return url
+        try:
+            user_agent = self.get_random_user_agent()
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                headers = {"User-Agent": user_agent}
+                resp = await client.get(url, headers=headers, follow_redirects=True)
+                final_url = str(resp.url)
+                logger.info(f"Resolved Google News redirect to: {final_url}")
+                return final_url
+        except Exception as e:
+            logger.warning(f"Failed to resolve redirect for {url}: {e}")
+            return url
+
     async def fetch_news_articles(self, bank_name: str, limit: int = 3) -> List[RawDocument]:
         """Queries Google News RSS for bank-related stories and fetches the articles live."""
         import xml.etree.ElementTree as ET
@@ -412,11 +428,14 @@ class BaseScraper(ABC):
                     if not link:
                         continue
                     
-                    logger.info(f"[{self.slug}] Fetching news article link: {link}")
-                    html, status = await self.fetch_html(link, use_playwright=False)
+                    # Resolve real redirected URL
+                    final_link = await self._resolve_redirect(link)
+                    
+                    logger.info(f"[{self.slug}] Fetching news article link: {final_link}")
+                    html, status = await self.fetch_html(final_link, use_playwright=False)
                     if status == 200 and html:
                         doc = RawDocument(
-                            url=link,
+                            url=final_link,
                             raw_html=html,
                             category="news",
                             institution_slug=self.slug,
@@ -425,7 +444,7 @@ class BaseScraper(ABC):
                         )
                         results.append(doc)
                     else:
-                        logger.warning(f"[{self.slug}] Failed to fetch news article at {link} - Status: {status}")
+                        logger.warning(f"[{self.slug}] Failed to fetch news article at {final_link} - Status: {status}")
         except Exception as e:
             logger.error(f"[{self.slug}] Error fetching news articles for {bank_name}: {e}", exc_info=True)
             
