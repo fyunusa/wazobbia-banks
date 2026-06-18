@@ -121,12 +121,13 @@ services:
       /bin/sh -c "
       echo 'Waiting for Ollama API to start...';
       until curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
-      echo 'Ollama is ready. Automatically pulling model qwen2.5:1.5b...';
-      curl -d '{\"name\": \"qwen2.5:1.5b\"}' http://ollama:11434/api/pull;
-      echo 'Model qwen2.5:1.5b downloaded successfully!';
+      echo 'Ollama is ready. Automatically pulling model llama3.1...';
+      curl -d '{\"name\": \"llama3.1\"}' http://ollama:11434/api/pull;
+      echo 'Model llama3.1 downloaded successfully!';
       echo 'Automatically pulling embedding model mxbai-embed-large...';
       curl -d '{\"name\": \"mxbai-embed-large\"}' http://ollama:11434/api/pull;
       echo 'Model mxbai-embed-large downloaded successfully!';"
+
 
 volumes:
   postgres-data:
