@@ -1,4 +1,30 @@
 services:
+  api:
+    build:
+      context: .
+      args:
+        - PIP_INDEX_ARGS=--extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  worker:
+    build:
+      context: .
+      args:
+        - PIP_INDEX_ARGS=--extra-index-url https://download.pytorch.org/whl/cu124 --index-strategy unsafe-best-match
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
   ollama:
     deploy:
       resources:
