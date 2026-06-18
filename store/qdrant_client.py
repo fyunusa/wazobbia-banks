@@ -34,6 +34,7 @@ class SearchResult(BaseModel):
     category: str
     institution_slug: str
     institution_name: str
+    scraped_at: Optional[str] = None
 
 
 class CollectionStats(BaseModel):
@@ -185,6 +186,7 @@ class QdrantStore:
                     category=payload.get("category", ""),
                     institution_slug=payload.get("institution_slug", ""),
                     institution_name=payload.get("institution_name", ""),
+                    scraped_at=payload.get("scraped_at", None),
                 )
             )
         return results
@@ -236,6 +238,7 @@ class QdrantStore:
                     category=payload.get("category", ""),
                     institution_slug=payload.get("institution_slug", ""),
                     institution_name=payload.get("institution_name", ""),
+                    scraped_at=payload.get("scraped_at", None),
                 )
             )
 

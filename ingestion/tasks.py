@@ -16,7 +16,8 @@ from ingestion.processors.cleaner import DocumentCleaner
 from ingestion.processors.chunker import SemanticChunker
 from ingestion.processors.embedder import Embedder
 
-# Scrapers mappings
+from registry.institutions import list_institutions, get_institution
+from ingestion.scrapers.base_scraper import BaseScraper, RawDocument
 from ingestion.scrapers.gtbank import GTBankScraper
 from ingestion.scrapers.zenith import ZenithScraper
 from ingestion.scrapers.access import AccessScraper
@@ -32,6 +33,44 @@ SCRAPER_MAP = {
     "opay": OPayScraper,
     "cbn": CBNRegulatoryScraper,
 }
+
+# Dynamically populate scrapers for any active banks that are not explicitly mapped
+for inst in list_institutions(active_only=True):
+    if inst.slug not in SCRAPER_MAP:
+        # Create a dynamic class factory enclosing the slug
+        def make_dynamic_scraper(slug_val=inst.slug):
+            class DynamicBankScraper(BaseScraper):
+                def __init__(self):
+                    super().__init__()
+                    self.slug = slug_val
+
+                async def scrape(self) -> List[RawDocument]:
+                    results = []
+                    try:
+                        bank_inst = get_institution(self.slug)
+                    except ValueError as e:
+                        logger.error(f"Registry entry not found for {self.slug}: {e}")
+                        return results
+
+                    # 1. Scrape targets with crawling
+                    for target in bank_inst.scrape_targets:
+                        try:
+                            docs = await self.scrape_target_with_crawl(target)
+                            results.extend(docs)
+                        except Exception as e:
+                            logger.error(f"Failed to scrape {target.url} for {self.slug}: {e}", exc_info=True)
+
+                    # 2. Scrape news articles
+                    try:
+                        news_docs = await self.fetch_news_articles(bank_inst.name, limit=3)
+                        results.extend(news_docs)
+                    except Exception as e:
+                        logger.error(f"Failed to fetch news for {self.slug}: {e}", exc_info=True)
+
+                    return results
+            return DynamicBankScraper
+        
+        SCRAPER_MAP[inst.slug] = make_dynamic_scraper()
 
 logger = logging.getLogger("ingestion.tasks")
 

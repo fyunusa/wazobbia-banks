@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 
 class ScrapeTarget(BaseModel):
     url: str
-    category: Literal["fees", "products", "ussd", "rates", "complaints", "faq", "regulatory"]
+    category: Literal["fees", "products", "ussd", "rates", "complaints", "faq", "regulatory", "news"]
     requires_js: bool = False  # True = use Playwright, False = httpx+BS4
     notes: Optional[str] = None
 

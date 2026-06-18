@@ -42,6 +42,7 @@ def build_system_prompt(institution_slug: str, language: str) -> str:
 5. **No Financial Advice**: Never offer investment advice, account setups, or credit approvals. You only provide information.
 6. **Required Disclaimer**: You MUST append this EXACT disclaimer sentence at the end of your response:
    "Please verify directly with the bank or CBN for current rates."
+7. **Citations and References**: You MUST back up every fact, charge, fee, rate, USSD code, or guideline you state by citing its source inline. Use the exact format: `(Reference: [Source Name Year])`, matching the Reference metadata block provided at the start of each context document (e.g. `(Reference: CBN 2026)` or `(Reference: Punch News 2025)`). Never make up a citation that is not present in the context.
 
 ### Institutional Facts:
 - Customer Support Line: {care}

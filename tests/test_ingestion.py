@@ -161,3 +161,17 @@ def test_verify_dedup_via_content_hash():
     for c1, c2 in zip(chunks1, chunks2):
         # The hashes must match for identical content
         assert c1.content_hash == c2.content_hash
+
+
+def test_source_reference_resolution():
+    from agents.rag_query import get_source_reference
+    
+    cases = [
+        ("https://www.cbn.gov.ng/documents/circulars/2026/cbn_guide_to_charges_2026.pdf", None, "CBN 2026"),
+        ("https://punchng.com/2025/05/cbn-interest-rates-increase/", None, "Punch News 2025"),
+        ("https://www.gtbank.com/help-centre/faqs", "2026-06-18T09:39:49+01:00", "GTBank Website 2026"),
+        ("https://vanguardngr.com/cbn-news/", None, "Vanguard News 2026"),
+    ]
+    
+    for url, scraped_at, expected in cases:
+        assert get_source_reference(url, scraped_at) == expected

@@ -5,7 +5,7 @@ import asyncio
 import urllib.parse
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Optional, List, Tuple, Dict
+from typing import Optional, List, Tuple, Dict, Any
 from urllib.robotparser import RobotFileParser
 import httpx
 from pydantic import BaseModel, Field
@@ -381,3 +381,172 @@ class BaseScraper(ABC):
                 backoff *= 2
 
         return b"", 500
+
+    async def fetch_news_articles(self, bank_name: str, limit: int = 3) -> List[RawDocument]:
+        """Queries Google News RSS for bank-related stories and fetches the articles live."""
+        import xml.etree.ElementTree as ET
+        
+        query = urllib.parse.quote(f'"{bank_name}" Nigeria charges OR fees OR USSD OR interest OR "2026"')
+        rss_url = f"https://news.google.com/rss/search?q={query}&hl=en-NG&gl=NG&ceid=NG:en"
+        
+        results = []
+        user_agent = self.get_random_user_agent()
+        logger.info(f"[{self.slug}] Querying news feed for '{bank_name}' via: {rss_url}")
+        
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(rss_url, headers={"User-Agent": user_agent})
+                if resp.status_code != 200:
+                    logger.warning(f"Failed to fetch news feed for {bank_name} - Status: {resp.status_code}")
+                    return results
+                
+                root = ET.fromstring(resp.text)
+                items = root.findall(".//item")[:limit]
+                logger.info(f"[{self.slug}] Found {len(items)} news items for {bank_name}")
+                
+                for item in items:
+                    title_el = item.find("title")
+                    link_el = item.find("link")
+                    link = link_el.text if link_el is not None else ""
+                    
+                    if not link:
+                        continue
+                    
+                    logger.info(f"[{self.slug}] Fetching news article link: {link}")
+                    html, status = await self.fetch_html(link, use_playwright=False)
+                    if status == 200 and html:
+                        doc = RawDocument(
+                            url=link,
+                            raw_html=html,
+                            category="news",
+                            institution_slug=self.slug,
+                            http_status=status,
+                            content_type="html",
+                        )
+                        results.append(doc)
+                    else:
+                        logger.warning(f"[{self.slug}] Failed to fetch news article at {link} - Status: {status}")
+        except Exception as e:
+            logger.error(f"[{self.slug}] Error fetching news articles for {bank_name}: {e}", exc_info=True)
+            
+        return results
+
+    async def scrape_target_with_crawl(self, target: Any, max_sub_links: int = 5) -> List[RawDocument]:
+        """Fetches the target URL and crawls relevant sub-links within the same domain at depth 1."""
+        from bs4 import BeautifulSoup
+        results = []
+
+        # 1. Scrape the primary target
+        if target.url.lower().endswith(".pdf"):
+            pdf_bytes, status = await self.fetch_pdf(target.url)
+            doc = RawDocument(
+                url=target.url,
+                pdf_bytes=pdf_bytes if status == 200 else None,
+                category=target.category,
+                institution_slug=self.slug,
+                http_status=status,
+                content_type="pdf",
+            )
+            results.append(doc)
+            return results
+
+        html, status = await self.fetch_html(target.url, use_playwright=target.requires_js)
+        primary_doc = RawDocument(
+            url=target.url,
+            raw_html=html if status == 200 else None,
+            category=target.category,
+            institution_slug=self.slug,
+            http_status=status,
+            content_type="html",
+        )
+        results.append(primary_doc)
+
+        if status != 200 or not html:
+            return results
+
+        # 2. Extract sub-links for crawl depth 1
+        parsed_target_url = urllib.parse.urlparse(target.url)
+        target_domain = parsed_target_url.netloc
+
+        sub_links = []
+        soup = BeautifulSoup(html, "html.parser")
+        for anchor in soup.find_all("a", href=True):
+            href = anchor["href"].strip()
+            if not href or href.startswith("#") or href.lower().startswith("javascript:"):
+                continue
+
+            absolute_url = urllib.parse.urljoin(target.url, href)
+            parsed_sub_url = urllib.parse.urlparse(absolute_url)
+
+            if parsed_sub_url.netloc != target_domain or parsed_sub_url.scheme not in ["http", "https"]:
+                continue
+
+            clean_sub_url = urllib.parse.urlunparse((
+                parsed_sub_url.scheme,
+                parsed_sub_url.netloc,
+                parsed_sub_url.path,
+                parsed_sub_url.params,
+                parsed_sub_url.query,
+                ""
+            ))
+
+            if clean_sub_url == target.url:
+                continue
+
+            sub_links.append(clean_sub_url)
+
+        # Deduplicate
+        sub_links = list(dict.fromkeys(sub_links))
+
+        # 3. Filter relevant links by category keywords
+        keywords = {
+            "fees": ["fee", "charge", "tariff", "pricing", "cost", "payment", "card", "maintenance", "guide", "limit", "price", "commission"],
+            "faq": ["faq", "frequently", "help", "support", "question", "guide", "center"],
+            "products": ["account", "savings", "current", "card", "loan", "deposit", "transfer", "app", "ussd", "personal", "business", "product"],
+            "ussd": ["ussd", "code", "shortcode", "dial", "transfer"],
+            "rates": ["rate", "interest", "exchange", "forex", "fx"],
+            "regulatory": ["circular", "guideline", "policy", "directive", "regulation", "act", "notice", "cbn", "ndic", "charge", "tariff"],
+            "news": ["charges", "fees", "tariff", "ussd", "rate", "policy", "cbn", "directive", "nigeria", "news"],
+        }
+
+        cat_kws = keywords.get(target.category, [])
+        relevant_sub_links = []
+
+        for link in sub_links:
+            link_lower = link.lower()
+            if any(kw in link_lower for kw in cat_kws):
+                relevant_sub_links.append(link)
+
+        # Limit count
+        relevant_sub_links = relevant_sub_links[:max_sub_links]
+        if relevant_sub_links:
+            logger.info(f"[{self.slug}] Found {len(relevant_sub_links)} relevant sub-links for crawl: {relevant_sub_links}")
+
+        # 4. Fetch crawled sub-links
+        for link in relevant_sub_links:
+            try:
+                if link.lower().endswith(".pdf"):
+                    pdf_bytes, sub_status = await self.fetch_pdf(link)
+                    doc = RawDocument(
+                        url=link,
+                        pdf_bytes=pdf_bytes if sub_status == 200 else None,
+                        category=target.category,
+                        institution_slug=self.slug,
+                        http_status=sub_status,
+                        content_type="pdf",
+                    )
+                else:
+                    sub_html, sub_status = await self.fetch_html(link, use_playwright=False)
+                    doc = RawDocument(
+                        url=link,
+                        raw_html=sub_html if sub_status == 200 else None,
+                        category=target.category,
+                        institution_slug=self.slug,
+                        http_status=sub_status,
+                        content_type="html",
+                    )
+                results.append(doc)
+            except Exception as e:
+                logger.error(f"[{self.slug}] Failed to scrape crawled sub-link {link}: {e}")
+
+        return results

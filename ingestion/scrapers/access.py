@@ -19,32 +19,19 @@ class AccessScraper(BaseScraper):
             logger.error(f"Registry entry not found for {self.slug}: {e}")
             return results
 
+        # 1. Scrape targets with crawling
         for target in inst.scrape_targets:
             try:
-                if target.url.lower().endswith(".pdf"):
-                    pdf_bytes, status = await self.fetch_pdf(target.url)
-                    doc = RawDocument(
-                        url=target.url,
-                        pdf_bytes=pdf_bytes if status == 200 else None,
-                        category=target.category,
-                        institution_slug=self.slug,
-                        http_status=status,
-                        content_type="pdf",
-                    )
-                else:
-                    html, status = await self.fetch_html(
-                        target.url, use_playwright=target.requires_js
-                    )
-                    doc = RawDocument(
-                        url=target.url,
-                        raw_html=html if status == 200 else None,
-                        category=target.category,
-                        institution_slug=self.slug,
-                        http_status=status,
-                        content_type="html",
-                    )
-                results.append(doc)
+                docs = await self.scrape_target_with_crawl(target)
+                results.extend(docs)
             except Exception as e:
                 logger.error(f"Failed to scrape {target.url} for Access: {e}", exc_info=True)
+
+        # 2. Scrape news articles
+        try:
+            news_docs = await self.fetch_news_articles(inst.name, limit=3)
+            results.extend(news_docs)
+        except Exception as e:
+            logger.error(f"Failed to fetch news for Access: {e}", exc_info=True)
 
         return results

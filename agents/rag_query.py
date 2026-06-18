@@ -17,6 +17,86 @@ from store.postgres import AsyncSessionLocal, QueryLog
 from registry.institutions import get_institution
 from agents.system_prompts import build_system_prompt
 from ingestion.processors.embedder import Embedder
+import re
+from urllib.parse import urlparse
+
+def get_source_reference(url: str, scraped_at_str: Optional[str] = None) -> str:
+    parsed = urlparse(url)
+    domain = parsed.netloc.lower()
+    
+    # Identify source name
+    if "cbn.gov.ng" in domain:
+        source = "CBN"
+    elif "punchng.com" in domain:
+        source = "Punch News"
+    elif "vanguardngr.com" in domain:
+        source = "Vanguard News"
+    elif "guardian.ng" in domain:
+        source = "The Guardian"
+    elif "premiumtimesng.com" in domain:
+        source = "Premium Times"
+    elif "nairametrics.com" in domain:
+        source = "Nairametrics"
+    elif "techpoint.africa" in domain:
+        source = "Techpoint"
+    elif "gtbank.com" in domain:
+        source = "GTBank Website"
+    elif "zenithbank.com" in domain:
+        source = "Zenith Bank Website"
+    elif "accessbankplc.com" in domain:
+        source = "Access Bank Website"
+    elif "kudabank.com" in domain or "kuda.com" in domain:
+        source = "Kuda Bank Website"
+    elif "opayweb.com" in domain or "opay.com" in domain:
+        source = "OPay Website"
+    elif "moniepoint.com" in domain:
+        source = "Moniepoint Website"
+    elif "palmpay.com" in domain:
+        source = "PalmPay Website"
+    elif "firstbank" in domain:
+        source = "FirstBank Website"
+    elif "ubagroup.com" in domain:
+        source = "UBA Website"
+    elif "unionbank" in domain:
+        source = "Union Bank Website"
+    elif "sterling" in domain:
+        source = "Sterling Bank Website"
+    elif "wema" in domain or "alat" in domain:
+        source = "Wema Bank Website"
+    elif "fidelity" in domain:
+        source = "Fidelity Bank Website"
+    elif "fcmb" in domain:
+        source = "FCMB Website"
+    elif "stanbic" in domain:
+        source = "Stanbic IBTC Website"
+    else:
+        parts = domain.split('.')
+        if len(parts) > 1:
+            source = parts[-2].capitalize() + " Website"
+        else:
+            source = domain.capitalize()
+
+    # Determine year from URL
+    year_match = re.search(r'/20(2[0-9])/', url)
+    if year_match:
+        year = f"20{year_match.group(1)}"
+    else:
+        year_match_alt = re.search(r'\b20(2[0-9])\b', url)
+        if year_match_alt:
+            year = f"20{year_match_alt.group(1)}"
+        elif scraped_at_str:
+            try:
+                # Handle ISO datetime parsing
+                year_part = scraped_at_str.split("T")[0]
+                year = year_part.split("-")[0]
+                if not year.isdigit() or len(year) != 4:
+                    year = "2026"
+            except Exception:
+                year = "2026"
+        else:
+            year = "2026"
+
+    return f"{source} {year}"
 
 logger = logging.getLogger("agents.rag_query")
 
@@ -249,9 +329,11 @@ class RAGQueryEngine:
         token_limit = 3000
 
         for hit in hits:
-            hit_tokens = len(self.encoder.encode(hit.content))
+            ref = get_source_reference(hit.source_url, hit.scraped_at)
+            formatted_content = f"[Reference: {ref} | URL: {hit.source_url}]\n{hit.content}"
+            hit_tokens = len(self.encoder.encode(formatted_content))
             if current_tokens + hit_tokens <= token_limit:
-                context_parts.append(hit.content)
+                context_parts.append(formatted_content)
                 current_tokens += hit_tokens
                 if hit.source_url not in sources:
                     sources.append(hit.source_url)
