@@ -36,22 +36,26 @@ class TTSRouter:
         
         from voice.normalizer import TextNormalizer
         normalizer = TextNormalizer()
-        normalized_text = normalizer.normalize(text)
+        normalized_text = normalizer.normalize(text, lang)
         logger.info(f"TTS Text Normalization: '{text}' -> '{normalized_text}'")
         
         if lang == "yo":
             logger.info("Routing synthesis to F5TTSEngine (lang: yo)")
-            return await self.f5_engine.synthesize(normalized_text, lang)
+            result = await self.f5_engine.synthesize(normalized_text, lang)
         elif lang in ("ha", "pcm"):
             logger.info(f"Routing synthesis to YarnGPTTTSEngine (lang: {lang})")
-            return await self.yarngpt_engine.synthesize(normalized_text, lang)
+            result = await self.yarngpt_engine.synthesize(normalized_text, lang)
         elif lang == "en":
             logger.info("Routing synthesis to CoquiTTSEngine (lang: en)")
-            return await self.coqui_engine.synthesize(normalized_text, lang)
+            result = await self.coqui_engine.synthesize(normalized_text, lang)
         elif lang == "ig":
             logger.warning("Igbo TTS is not supported natively. Falling back to English CoquiTTSEngine.")
-            return await self.coqui_engine.synthesize(normalized_text, "en")
+            result = await self.coqui_engine.synthesize(normalized_text, "en")
         else:
             logger.warning(f"Unknown language '{language}' requested for TTS. Falling back to English CoquiTTSEngine.")
-            return await self.coqui_engine.synthesize(normalized_text, "en")
+            result = await self.coqui_engine.synthesize(normalized_text, "en")
+
+        result.normalized_text = normalized_text
+        return result
+
 

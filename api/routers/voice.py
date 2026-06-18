@@ -262,6 +262,7 @@ async def voice_query(
             "institution_slug": institution_slug,
             "confidence": query_response.confidence,
             "answer": query_response.answer,
+            "normalized_answer": tts_result.normalized_text,
             "sources": query_response.sources,
             "audio_url": audio_url,
             "latency_ms": int(total_latency),
@@ -424,6 +425,7 @@ async def websocket_voice_stream(
                     "type": "done",
                     "sources": query_response.sources,
                     "confidence": query_response.confidence,
+                    "normalized_answer": tts_result.normalized_text,
                 }
             )
 

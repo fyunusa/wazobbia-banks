@@ -8,6 +8,8 @@ class TTSResult(BaseModel):
     duration_seconds: float
     engine_used: str
     sample_rate: int
+    normalized_text: str = ""
+
 
 
 class BaseTTSEngine(ABC):
