@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import asyncio
 import httpx
 
 # Resolve import paths to find registry definitions
@@ -8,7 +9,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from registry.institutions import list_institutions
 
 API_BASE_URL = os.environ.get("WAZOBIA_API_URL", "http://localhost:8000")
-# In local development, the admin key is 'test-admin-secret-key-123'
 ADMIN_API_KEY = os.environ.get("WAZOBIA_ADMIN_KEY", "test-admin-secret-key-123")
 
 def print_progress_table(results: list):
@@ -17,13 +17,14 @@ def print_progress_table(results: list):
     print("\n" + "=" * len(header))
     print(header)
     print("-" * len(header))
-    for r in results:
+    # Sort results alphabetically by institution slug for consistent output
+    for r in sorted(results, key=lambda x: x["institution"]):
         duration_str = f"{r['duration']}s" if isinstance(r['duration'], (int, float)) else r['duration']
         print(f"{r['institution']:<14} | {r['status']:<9} | {r['pages']:<5} | {r['chunks']:<6} | {r['points']:<6} | {duration_str:<8}")
     print("=" * len(header) + "\n")
 
-def run_ingestion_for_institution(client: httpx.Client, slug: str, headers: dict) -> dict:
-    """Triggers and polls ingestion for a single institution."""
+async def run_ingestion_for_institution(client: httpx.AsyncClient, slug: str, headers: dict) -> dict:
+    """Triggers and polls ingestion for a single institution asynchronously."""
     result = {
         "institution": slug.upper(),
         "status": "FAILED",
@@ -36,7 +37,7 @@ def run_ingestion_for_institution(client: httpx.Client, slug: str, headers: dict
     # 1. Trigger Ingestion
     trigger_url = f"{API_BASE_URL}/v1/institutions/{slug}/ingest"
     try:
-        response = client.post(trigger_url, headers=headers, timeout=30.0)
+        response = await client.post(trigger_url, headers=headers, timeout=30.0)
     except Exception as e:
         result["duration"] = f"error: {str(e)[:15]}"
         return result
@@ -66,7 +67,7 @@ def run_ingestion_for_institution(client: httpx.Client, slug: str, headers: dict
             break
             
         try:
-            status_resp = client.get(status_url, headers=headers, timeout=10.0)
+            status_resp = await client.get(status_url, headers=headers, timeout=10.0)
             if status_resp.status_code == 200:
                 task_data = status_resp.json()
                 status = task_data.get("status")
@@ -85,16 +86,24 @@ def run_ingestion_for_institution(client: httpx.Client, slug: str, headers: dict
                         err_msg = task_res.get("error", "unknown error")
                         result["duration"] = f"error: {str(err_msg)[:15]}"
                     break
-        except Exception as e:
+        except Exception:
             # Keep polling in case of transient connection error
             pass
             
-        time.sleep(5)
+        await asyncio.sleep(5)
         
     return result
 
-def main():
-    print("Starting Wazobia Bulk Ingestion Pipeline...")
+async def worker(sem: asyncio.Semaphore, client: httpx.AsyncClient, inst, headers: dict, results: list):
+    """Worker wrapper to execute ingestion under a concurrency-limiting semaphore."""
+    async with sem:
+        print(f"[{inst.slug.upper()}] Starting ingestion trigger...")
+        res = await run_ingestion_for_institution(client, inst.slug, headers)
+        results.append(res)
+        print(f"[{inst.slug.upper()}] Ingestion finished. Status: {res['status']}. Duration: {res['duration']}")
+
+async def main():
+    print("Starting Wazobia Bulk Ingestion Pipeline (Max Concurrency: 5)...")
     active_institutions = list_institutions(active_only=True)
     if not active_institutions:
         print("No active institutions registered in registry.")
@@ -102,18 +111,20 @@ def main():
 
     headers = {"X-API-Key": ADMIN_API_KEY}
     results = []
-    any_failed = False
+    
+    # Limit to 5 concurrent tasks
+    sem = asyncio.Semaphore(5)
 
-    with httpx.Client() as client:
-        for inst in active_institutions:
-            print(f"Triggering ingest for {inst.slug.upper()}...")
-            res = run_ingestion_for_institution(client, inst.slug, headers)
-            results.append(res)
-            if res["status"] != "SUCCESS":
-                any_failed = True
+    async with httpx.AsyncClient() as client:
+        tasks = [
+            worker(sem, client, inst, headers, results)
+            for inst in active_institutions
+        ]
+        await asyncio.gather(*tasks)
 
     print_progress_table(results)
 
+    any_failed = any(r["status"] != "SUCCESS" for r in results)
     if any_failed:
         print("Bulk ingestion finished with errors.")
         sys.exit(1)
@@ -122,4 +133,4 @@ def main():
         sys.exit(0)
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
