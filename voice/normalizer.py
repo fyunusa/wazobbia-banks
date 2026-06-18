@@ -42,69 +42,69 @@ class TextNormalizer:
     Language-aware: Hausa/Yoruba/Igbo get currency in local phrasing.
     """
 
-    # ── Nigerian Bank Names ───────────────────────────────────────────────
+    # ── Nigerian Bank Names (Phonetic equivalents for reliable TTS) ─────────
 
     BANK_RULES: list[tuple[str, str]] = [
-        # Exact brand compounds that TTS reads wrong
-        (r"\bGTBank\b",         "G T Bank"),
-        (r"\bGT Bank\b",        "G T Bank"),         # already spaced but TTS still slurs
-        (r"\bGTB\b",            "G T B"),
-        (r"\bFirstBank\b",      "First Bank"),
-        (r"\bFirstMonie\b",     "First Monie"),
-        (r"\bOPay\b",           "O Pay"),
-        (r"\bPalmPay\b",        "Palm Pay"),
-        (r"\bMoniePoint\b",     "Monie Point"),
-        (r"\bMoiepoint\b",      "Monie Point"),       # common OCR/scrape typo
-        (r"\bStanbicIBTC\b",    "Stanbic I B T C"),
-        (r"\bStanbic IBTC\b",   "Stanbic I B T C"),
-        (r"\bIBTC\b",           "I B T C"),
-        (r"\bEcobank\b",        "Eco Bank"),
-        (r"\bFCMB\b",           "F C M B"),
-        (r"\bUBA\b",            "U B A"),
-        (r"\bGTWorld\b",        "G T World"),
-        (r"\bZenithBank\b",     "Zenith Bank"),
-        (r"\bAccessBank\b",     "Access Bank"),
-        (r"\bUnionBank\b",      "Union Bank"),
-        (r"\bWemaBank\b",       "Wema Bank"),
-        (r"\bKudaBank\b",       "Kuda Bank"),
+        (r"\bGTBank\b",         "gee tee bank"),
+        (r"\bGT Bank\b",        "gee tee bank"),
+        (r"\bGTB\b",            "gee tee bee"),
+        (r"\bFirstBank\b",      "first bank"),
+        (r"\bFirstMonie\b",     "first money"),
+        (r"\bOPay\b",           "oh pay"),
+        (r"\bPalmPay\b",        "pahm pay"),
+        (r"\bMoniePoint\b",     "money point"),
+        (r"\bMoiepoint\b",      "money point"),
+        (r"\bStanbicIBTC\b",    "stanbic eye bee tee see"),
+        (r"\bStanbic IBTC\b",   "stanbic eye bee tee see"),
+        (r"\bIBTC\b",           "eye bee tee see"),
+        (r"\bEcobank\b",        "eco bank"),
+        (r"\bFCMB\b",           "eff see em bee"),
+        (r"\bUBA\b",            "you bee ay"),
+        (r"\bGTWorld\b",        "gee tee world"),
+        (r"\bZenithBank\b",     "zenith bank"),
+        (r"\bAccessBank\b",     "access bank"),
+        (r"\bUnionBank\b",      "union bank"),
+        (r"\bWemaBank\b",       "wema bank"),
+        (r"\bKudaBank\b",       "kooda bank"),
+        (r"\bKuda\b",           "kooda"),
     ]
 
-    # ── Regulatory & Financial Acronyms ──────────────────────────────────
+    # ── Regulatory & Financial Acronyms (Phonetic spellings) ──────────────
 
     ACRONYM_RULES: list[tuple[str, str]] = [
         # Regulatory bodies
-        (r"\bCBN\b",            "C B N"),
-        (r"\bNDIC\b",           "N D I C"),
-        (r"\bSEC\b",            "S E C"),             # Securities & Exchange Commission
-        (r"\bEFCC\b",           "E F C C"),
-        (r"\bFIRS\b",           "F I R S"),
+        (r"\bCBN\b",            "see bee enn"),
+        (r"\bNDIC\b",           "enn dee eye see"),
+        (r"\bSEC\b",            "ess ee see"),
+        (r"\bEFCC\b",           "ee eff see see"),
+        (r"\bFIRS\b",           "eff eye ar ess"),
 
         # Payment infrastructure
-        (r"\bUSSD\b",           "U S S D"),
-        (r"\bNIBSS\b",          "N I B S S"),
-        (r"\bNIP\b",            "N I P"),             # NIBSS Instant Payment
-        (r"\bNEFT\b",           "N E F T"),
-        (r"\bRTGS\b",           "R T G S"),
+        (r"\bUSSD\b",           "you ess ess dee"),
+        (r"\bNIBSS\b",          "nibs"),
+        (r"\bNIP\b",            "enn eye pee"),
+        (r"\bNEFT\b",           "neft"),
+        (r"\bRTGS\b",           "are tee gee ess"),
 
         # Banking channels
-        (r"\bATM\b",            "A T M"),
-        (r"\bPOS\b",            "P O S"),
-        (r"\bOTP\b",            "O T P"),
-        (r"\bPIN\b",            "P I N"),
+        (r"\bATM\b",            "ay tee em"),
+        (r"\bPOS\b",            "pee oh ess"),
+        (r"\bOTP\b",            "oh tee pee"),
+        (r"\bPIN\b",            "pin"),
 
         # Identity & compliance
-        (r"\bBVN\b",            "B V N"),
-        (r"\bNIN\b",            "N I N"),
-        (r"\bKYC\b",            "K Y C"),
-        (r"\bAML\b",            "A M L"),
+        (r"\bBVN\b",            "bee vee enn"),
+        (r"\bNIN\b",            "enn eye enn"),
+        (r"\bKYC\b",            "kay wye see"),
+        (r"\bAML\b",            "ay em el"),
 
         # Products
-        (r"\bAPI\b",            "A P I"),
-        (r"\bSME\b",            "S M E"),
-        (r"\bHNI\b",            "H N I"),             # High Net Worth Individual
-        (r"\bVAS\b",            "V A S"),
-        (r"\bSMS\b",            "S M S"),
-        (r"\bQR\b",             "Q R"),
+        (r"\bAPI\b",            "ay pee eye"),
+        (r"\bSME\b",            "ess em ee"),
+        (r"\bHNI\b",            "aych enn eye"),
+        (r"\bVAS\b",            "vee ay ess"),
+        (r"\bSMS\b",            "ess em ess"),
+        (r"\bQR\b",             "cue are"),
     ]
 
     # ── Markdown cleanup (LLM bleeds formatting into responses) ──────────
@@ -135,7 +135,7 @@ class TextNormalizer:
                 description=f"markdown: {pattern}"
             ))
 
-        # Bank names — case-sensitive for brand integrity
+        # Bank names — case-insensitive for brand integrity
         for pattern, replacement in self.BANK_RULES:
             rules.append(NormRule(
                 pattern=re.compile(pattern, re.IGNORECASE),
@@ -147,7 +147,6 @@ class TextNormalizer:
         # e.g. "pin" in a sentence should NOT become "P I N"
         for pattern, replacement in self.ACRONYM_RULES:
             rules.append(NormRule(
-                # \b word boundary, original pattern already uppercase-anchored
                 pattern=re.compile(pattern),
                 replacement=replacement,
                 description=f"acronym: {replacement}"
@@ -280,21 +279,20 @@ class TextNormalizer:
 
         original = text
 
-        # 1. Strip markdown artifacts
-        # 2. Normalize bank names and acronyms
+        # 1. Run USSD codes first (to prevent markdown rules from stripping asterisks)
+        text = self._normalize_ussd(text)
+
+        # 2. Strip markdown artifacts & apply bank names and acronyms
         for rule in self._rules:
             text = rule.pattern.sub(rule.replacement, text)
 
         # 3. Currency (language-aware)
         text = self._normalize_currency(text, language)
 
-        # 4. USSD codes
-        text = self._normalize_ussd(text)
-
-        # 5. Numbers and percentages
+        # 4. Numbers and percentages
         text = self._normalize_numbers(text)
 
-        # 6. Clean up whitespace artifacts from substitutions
+        # 5. Clean up whitespace artifacts from substitutions
         text = re.sub(r"  +", " ", text)
         text = text.strip()
 
