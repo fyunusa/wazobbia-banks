@@ -54,7 +54,7 @@ class F5TTSEngine(BaseTTSEngine):
 
         return self._model
 
-    def _synthesize_sync(self, text: str) -> tuple[bytes, float, int]:
+    def _synthesize_sync(self, text: str, gender: str = "female") -> tuple[bytes, float, int]:
         """Synchronous CPU/GPU bound F5-TTS inference."""
         import soundfile as sf
         import numpy as np
@@ -75,7 +75,14 @@ class F5TTSEngine(BaseTTSEngine):
         try:
             # Resolve default reference audio from the workspace fixtures directory
             workspace_dir = os.getenv("WORKSPACE_DIR", os.getcwd())
-            ref_file = os.path.join(workspace_dir, "tests", "fixtures", "sample_query_en.wav")
+            
+            if gender == "male":
+                ref_file = os.path.join(workspace_dir, "tests", "fixtures", "sample_query_en_male.wav")
+                if not os.path.exists(ref_file):
+                    logger.warning(f"F5-TTS: Male reference audio not found at {ref_file}, falling back to female reference.")
+                    ref_file = os.path.join(workspace_dir, "tests", "fixtures", "sample_query_en.wav")
+            else:
+                ref_file = os.path.join(workspace_dir, "tests", "fixtures", "sample_query_en.wav")
             
             if not os.path.exists(ref_file):
                 # If the test fixture is not available, try a fallback path or log warning
@@ -86,7 +93,7 @@ class F5TTSEngine(BaseTTSEngine):
             ref_text = "Thank you very much."
 
             # Perform inference
-            logger.info(f"F5-TTS: Performing voice clone synthesis for text: '{text}'...")
+            logger.info(f"F5-TTS: Performing voice clone synthesis (gender: {gender}) for text: '{text}'...")
             wav, sr, _ = model.infer(
                 ref_file=ref_file,
                 ref_text=ref_text,
@@ -114,13 +121,14 @@ class F5TTSEngine(BaseTTSEngine):
             sf.write(wav_io, audio_array, sample_rate, format="WAV", subtype="PCM_16")
             return wav_io.getvalue(), duration, sample_rate
 
-    async def synthesize(self, text: str, language: str) -> TTSResult:
+    async def synthesize(self, text: str, language: str, gender: str = "female") -> TTSResult:
         """Asynchronously synthesizes Yoruba text using an executor."""
         loop = asyncio.get_running_loop()
         wav_bytes, duration, sample_rate = await loop.run_in_executor(
             None,
             self._synthesize_sync,
             text,
+            gender,
         )
 
         return TTSResult(

@@ -16,6 +16,6 @@ class BaseTTSEngine(ABC):
     """Abstract base class for all Text-to-Speech engines."""
 
     @abstractmethod
-    async def synthesize(self, text: str, language: str) -> TTSResult:
+    async def synthesize(self, text: str, language: str, gender: str = "female") -> TTSResult:
         """Synthesize text to audio bytes."""
         pass

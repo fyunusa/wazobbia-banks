@@ -112,6 +112,11 @@ async def voice_query(
         False,
         description="If true, returns a JSON response containing metadata and a link to the audio file on the server instead of streaming raw audio bytes.",
     ),
+    gender: str = Form(
+        "female",
+        description="Voice gender choice ('male' or 'female')",
+        examples=["female", "male"],
+    ),
     user_id: Optional[str] = Form(None, description="Optional user identifier for auditing/metrics"),
     qdrant: QdrantStore = Depends(get_qdrant_store),
     embedder: Embedder = Depends(get_embedder),
@@ -126,6 +131,14 @@ async def voice_query(
     except ValueError as e:
         logger.warning(f"Voice query requested for invalid institution slug: {institution_slug}")
         raise HTTPException(status_code=404, detail=str(e))
+
+    # Validate voice gender choice
+    gender_choice = gender.lower().strip()
+    if gender_choice not in ("male", "female"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported voice gender: {gender}. Supported: ['male', 'female']",
+        )
 
     # 2. Validate audio size limit (10MB)
     audio.file.seek(0, 2)
@@ -215,7 +228,7 @@ async def voice_query(
     tts_start = time.time()
     tts_router = TTSRouter()
     try:
-        tts_result = await tts_router.synthesize(query_response.answer, detected_lang)
+        tts_result = await tts_router.synthesize(query_response.answer, detected_lang, gender_choice)
     except Exception as e:
         logger.error(f"TTS synthesis failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to synthesize response text to speech audio")
@@ -334,8 +347,9 @@ async def websocket_voice_stream(
     audio_buffer = bytearray()
     vad = VoiceActivityDetector()
     current_language = None  # None/auto represents auto-detect
+    current_gender = "female"
 
-    async def execute_voice_pipeline(pcm_bytes: bytes, target_lang: str):
+    async def execute_voice_pipeline(pcm_bytes: bytes, target_lang: str, target_gender: str):
         """Helper to run the voice RAG pipeline and send frames back to client."""
         if len(pcm_bytes) < 3200:  # Less than 100ms of audio (16000 * 2 * 0.1)
             await websocket.send_json({"type": "error", "message": "Audio input is too short"})
@@ -394,7 +408,7 @@ async def websocket_voice_stream(
             # G. TTS response synthesis
             tts_start_time = time.time()
             tts_router = TTSRouter()
-            tts_result = await tts_router.synthesize(query_response.answer, detected_lang)
+            tts_result = await tts_router.synthesize(query_response.answer, detected_lang, target_gender)
             tts_latency = (time.time() - tts_start_time) * 1000
 
             # Record voice request metrics
@@ -451,7 +465,7 @@ async def websocket_voice_stream(
                     logger.info(f"VAD triggered end-of-speech for WebSocket ID {conn_id}.")
                     lang_hint = current_language or "auto"
                     
-                    await execute_voice_pipeline(bytes(audio_buffer), lang_hint)
+                    await execute_voice_pipeline(bytes(audio_buffer), lang_hint, current_gender)
                     audio_buffer = bytearray()
                     vad.speech_detected = False
                     vad.silence_duration_samples = 0
@@ -464,10 +478,27 @@ async def websocket_voice_stream(
                     if frame_type == "language":
                         current_language = data.get("lang")
                         logger.info(f"WebSocket ID {conn_id} set language context: {current_language}")
+                    elif frame_type == "gender":
+                        gender_val = data.get("gender", "female")
+                        if gender_val in ("male", "female"):
+                            current_gender = gender_val
+                            logger.info(f"WebSocket ID {conn_id} set gender context: {current_gender}")
+                        else:
+                            await websocket.send_json({"type": "error", "message": f"Unsupported gender value: {gender_val}"})
+                    elif frame_type == "config":
+                        if "lang" in data:
+                            current_language = data["lang"]
+                        if "gender" in data:
+                            gender_val = data["gender"]
+                            if gender_val in ("male", "female"):
+                                current_gender = gender_val
+                            else:
+                                await websocket.send_json({"type": "error", "message": f"Unsupported gender value: {gender_val}"})
+                        logger.info(f"WebSocket ID {conn_id} set config context: lang={current_language}, gender={current_gender}")
                     elif frame_type == "end":
                         logger.info(f"WebSocket ID {conn_id} received manual end-of-speech.")
                         lang_hint = current_language or "auto"
-                        await execute_voice_pipeline(bytes(audio_buffer), lang_hint)
+                        await execute_voice_pipeline(bytes(audio_buffer), lang_hint, current_gender)
                         audio_buffer = bytearray()
                         vad.speech_detected = False
                         vad.silence_duration_samples = 0

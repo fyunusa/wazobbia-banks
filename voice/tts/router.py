@@ -21,13 +21,14 @@ class TTSRouter:
         self.yarngpt_engine = YarnGPTTTSEngine()
         self.coqui_engine = CoquiTTSEngine()
 
-    async def synthesize(self, text: str, language: str) -> TTSResult:
+    async def synthesize(self, text: str, language: str, gender: str = "female") -> TTSResult:
         """
         Routes the synthesis request to the appropriate engine.
         
         Args:
             text: Text to synthesize.
             language: Target language code (e.g. 'ha', 'yo', 'ig', 'en', 'pcm').
+            gender: Choose voice gender ('male' or 'female').
             
         Returns:
             TTSResult containing the synthesized WAV bytes, duration, and metadata.
@@ -40,20 +41,20 @@ class TTSRouter:
         logger.info(f"TTS Text Normalization: '{text}' -> '{normalized_text}'")
         
         if lang == "yo":
-            logger.info("Routing synthesis to F5TTSEngine (lang: yo)")
-            result = await self.f5_engine.synthesize(normalized_text, lang)
+            logger.info(f"Routing synthesis to F5TTSEngine (lang: yo, gender: {gender})")
+            result = await self.f5_engine.synthesize(normalized_text, lang, gender)
         elif lang in ("ha", "pcm"):
-            logger.info(f"Routing synthesis to YarnGPTTTSEngine (lang: {lang})")
-            result = await self.yarngpt_engine.synthesize(normalized_text, lang)
+            logger.info(f"Routing synthesis to YarnGPTTTSEngine (lang: {lang}, gender: {gender})")
+            result = await self.yarngpt_engine.synthesize(normalized_text, lang, gender)
         elif lang == "en":
-            logger.info("Routing synthesis to CoquiTTSEngine (lang: en)")
-            result = await self.coqui_engine.synthesize(normalized_text, lang)
+            logger.info(f"Routing synthesis to CoquiTTSEngine (lang: en, gender: {gender})")
+            result = await self.coqui_engine.synthesize(normalized_text, lang, gender)
         elif lang == "ig":
-            logger.warning("Igbo TTS is not supported natively. Falling back to English CoquiTTSEngine.")
-            result = await self.coqui_engine.synthesize(normalized_text, "en")
+            logger.warning(f"Igbo TTS is not supported natively. Falling back to English CoquiTTSEngine (gender: {gender}).")
+            result = await self.coqui_engine.synthesize(normalized_text, "en", gender)
         else:
-            logger.warning(f"Unknown language '{language}' requested for TTS. Falling back to English CoquiTTSEngine.")
-            result = await self.coqui_engine.synthesize(normalized_text, "en")
+            logger.warning(f"Unknown language '{language}' requested for TTS. Falling back to English CoquiTTSEngine (gender: {gender}).")
+            result = await self.coqui_engine.synthesize(normalized_text, "en", gender)
 
         result.normalized_text = normalized_text
         return result

@@ -40,6 +40,23 @@ if not hasattr(mock_tts_api, "TTS"):
     mock_tts_api.TTS = MagicMock()
 mock_TTS_class = mock_tts_api.TTS
 
+if "f5_tts" in sys.modules and isinstance(sys.modules["f5_tts"], MagicMock):
+    mock_f5_tts = sys.modules["f5_tts"]
+else:
+    mock_f5_tts = MagicMock()
+    sys.modules["f5_tts"] = mock_f5_tts
+    mock_f5_tts_api = MagicMock()
+    sys.modules["f5_tts.api"] = mock_f5_tts_api
+
+if not hasattr(mock_f5_tts_api, "F5TTS"):
+    mock_f5_tts_api.F5TTS = MagicMock()
+
+if "audiotokenizer" in sys.modules and isinstance(sys.modules["audiotokenizer"], MagicMock):
+    mock_audiotokenizer = sys.modules["audiotokenizer"]
+else:
+    mock_audiotokenizer = MagicMock()
+    sys.modules["audiotokenizer"] = mock_audiotokenizer
+
 import pytest
 import numpy as np
 import torch
@@ -146,16 +163,16 @@ async def test_tts_router(mock_coqui_class, mock_yarngpt_class, mock_f5_class):
     router = TTSRouter()
 
     await router.synthesize("sannu", "ha")
-    mock_yarngpt.synthesize.assert_called_once_with("sannu", "ha")
+    mock_yarngpt.synthesize.assert_called_once_with("sannu", "ha", "female")
 
-    await router.synthesize("e kaabo", "yo")
-    mock_f5.synthesize.assert_called_once_with("e kaabo", "yo")
+    await router.synthesize("e kaabo", "yo", "male")
+    mock_f5.synthesize.assert_called_once_with("e kaabo", "yo", "male")
     
-    await router.synthesize("hello", "en")
-    mock_coqui.synthesize.assert_called_once_with("hello", "en")
+    await router.synthesize("hello", "en", "male")
+    mock_coqui.synthesize.assert_called_once_with("hello", "en", "male")
 
     await router.synthesize("unknown text", "fr")
-    mock_coqui.synthesize.assert_any_call("unknown text", "en")
+    mock_coqui.synthesize.assert_any_call("unknown text", "en", "female")
 
 
 
@@ -214,7 +231,7 @@ async def test_coqui_tts_synthesis(mock_sf_write):
 
 @pytest.mark.asyncio
 @patch("soundfile.write")
-@patch("voice.tts.f5_engine.hf_hub_download")
+@patch("voice.tts.f5_engine.hf_hub_download", create=True)
 @patch("f5_tts.api.F5TTS")
 async def test_f5_tts_synthesis(mock_f5_class, mock_download, mock_sf_write):
     mock_f5_instance = MagicMock()
@@ -237,9 +254,9 @@ async def test_f5_tts_synthesis(mock_f5_class, mock_download, mock_sf_write):
 
 @pytest.mark.asyncio
 @patch("soundfile.write")
-@patch("voice.tts.yarngpt_engine.hf_hub_download")
+@patch("voice.tts.yarngpt_engine.hf_hub_download", create=True)
 @patch("transformers.AutoModelForCausalLM.from_pretrained")
-@patch("voice.tts.yarngpt_engine.AudioTokenizerV2")
+@patch("audiotokenizer.AudioTokenizerV2")
 async def test_yarngpt_tts_synthesis(mock_tokenizer_class, mock_model_class, mock_download, mock_sf_write):
     mock_tokenizer_instance = MagicMock()
     mock_tokenizer_instance.get_audio.return_value = torch.zeros(1, 24000)

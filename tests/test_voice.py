@@ -314,3 +314,119 @@ async def test_websocket_stream_connection_limits():
         assert exc_info.value.code == 3000
     finally:
         app.state.redis_store = original_redis
+
+
+# ==========================================
+# 3. Voice Gender Options Tests
+# ==========================================
+@patch("api.routers.voice.validate_and_convert_audio")
+@patch("voice.stt.whisper_engine.WhisperSTTEngine.transcribe")
+@patch("agents.rag_query.RAGQueryEngine.query")
+@patch("voice.tts.router.TTSRouter.synthesize")
+def test_voice_query_gender_options(mock_synthesize, mock_query, mock_transcribe, mock_validate):
+    app.state.redis_store = mock_redis_store
+    dummy_wav = generate_dummy_wav()
+    mock_validate.return_value = dummy_wav
+    mock_transcribe.return_value = TranscriptionResult(
+        transcript="balance check",
+        detected_language="en",
+        duration_seconds=3.0,
+        engine_used="whisper",
+    )
+    mock_rag_response = MagicMock()
+    mock_rag_response.answer = "Your balance is 5000 naira."
+    mock_rag_response.sources = []
+    mock_rag_response.confidence = 1.0
+    mock_query.return_value = mock_rag_response
+    mock_synthesize.return_value = TTSResult(
+        audio_bytes=b"male_audio",
+        language="en",
+        duration_seconds=2.0,
+        engine_used="coqui",
+        sample_rate=22050,
+    )
+
+    # Test male voice request
+    files = {"audio": ("test.wav", dummy_wav, "audio/wav")}
+    data = {"institution_slug": "gtbank", "preferred_language": "en", "gender": "male"}
+    response = client.post("/v1/voice/query", files=files, data=data)
+    assert response.status_code == 200
+    mock_synthesize.assert_called_with("Your balance is 5000 naira.", "en", "male")
+
+    # Test invalid gender request
+    files = {"audio": ("test.wav", dummy_wav, "audio/wav")}
+    data = {"institution_slug": "gtbank", "preferred_language": "en", "gender": "invalid_gender"}
+    response = client.post("/v1/voice/query", files=files, data=data)
+    assert response.status_code == 400
+    assert "Unsupported voice gender" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+@patch("voice.stt.whisper_engine.WhisperSTTEngine.transcribe")
+@patch("voice.stt.mms_engine.MMSSTTEngine.transcribe")
+@patch("agents.rag_query.RAGQueryEngine.query")
+@patch("voice.tts.router.TTSRouter.synthesize")
+@patch("voice.vad.VoiceActivityDetector.is_end_of_speech")
+async def test_websocket_stream_gender_options(
+    mock_is_end, mock_synthesize, mock_query, mock_mms_transcribe, mock_whisper_transcribe
+):
+    mock_is_end.return_value = False
+    mock_whisper_transcribe.return_value = TranscriptionResult(
+        transcript="hello",
+        detected_language="en",
+        duration_seconds=3.0,
+        engine_used="whisper",
+    )
+    mock_mms_transcribe.return_value = TranscriptionResult(
+        transcript="hello",
+        detected_language="en",
+        duration_seconds=3.0,
+        engine_used="mms",
+    )
+    mock_rag_response = MagicMock()
+    mock_rag_response.answer = "Hello there."
+    mock_rag_response.sources = []
+    mock_rag_response.confidence = 1.0
+    mock_query.return_value = mock_rag_response
+    mock_synthesize.return_value = TTSResult(
+        audio_bytes=b"mock_bytes",
+        language="en",
+        duration_seconds=2.0,
+        engine_used="coqui",
+        sample_rate=16000,
+    )
+
+    with client.websocket_connect("/v1/voice/stream/gtbank") as ws:
+        # Send gender update text frame
+        ws.send_json({"type": "gender", "gender": "male"})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        ws.send_json({"type": "end"})
+        
+        # Read frames to flush queue
+        ws.receive_json() # transcript
+        ws.receive_json() # answer_text
+        ws.receive_bytes() # audio
+        ws.receive_json() # done
+        
+        mock_synthesize.assert_called_with("Hello there.", "en", "male")
+
+    with client.websocket_connect("/v1/voice/stream/gtbank") as ws:
+        # Send config update text frame
+        ws.send_json({"type": "config", "lang": "ha", "gender": "male"})
+        ws.send_bytes(b"\x00\x00" * 1600)
+        ws.send_json({"type": "end"})
+        
+        # Read frames to flush queue
+        ws.receive_json()
+        ws.receive_json()
+        ws.receive_bytes()
+        ws.receive_json()
+        
+        mock_synthesize.assert_called_with("Hello there.", "ha", "male")
+
+    with client.websocket_connect("/v1/voice/stream/gtbank") as ws:
+        # Send invalid gender config frame
+        ws.send_json({"type": "gender", "gender": "invalid_gender"})
+        err_msg = ws.receive_json()
+        assert err_msg["type"] == "error"
+        assert "Unsupported gender value" in err_msg["message"]

@@ -47,19 +47,20 @@ class CoquiTTSEngine(BaseTTSEngine):
             logger.info("Coqui TTS Multi-Speaker VITS model loaded.")
         return self._pcm_model
 
-    def _synthesize_sync(self, text: str, language: str) -> tuple[bytes, float, int]:
+    def _synthesize_sync(self, text: str, language: str, gender: str = "female") -> tuple[bytes, float, int]:
         """Runs the synchronous CPU/GPU bound TTS generation."""
         import soundfile as sf
 
         sample_rate = 22050  # Coqui native sample rate for DDC and VCTK VITS models
 
         try:
-            if language == "pcm":
+            if language == "pcm" or (language == "en" and gender == "male"):
                 model = self._get_pcm_model()
-                # VCTK VITS is a multi-speaker model; we select speaker 'p304' as the default representative voice.
-                wav_data = model.tts(text=text, speaker="p304")
+                # VCTK VITS is a multi-speaker model; select p230 for male, p225 for female.
+                speaker = "p230" if gender == "male" else "p225"
+                wav_data = model.tts(text=text, speaker=speaker)
             else:
-                # Default to standard English DDC model
+                # Default to standard English DDC model (female)
                 model = self._get_en_model()
                 wav_data = model.tts(text=text)
 
@@ -80,7 +81,7 @@ class CoquiTTSEngine(BaseTTSEngine):
 
         return wav_bytes, duration, sample_rate
 
-    async def synthesize(self, text: str, language: str) -> TTSResult:
+    async def synthesize(self, text: str, language: str, gender: str = "female") -> TTSResult:
         """Synthesizes English or Pidgin text to speech asynchronously using executor."""
         lang = language.lower().strip()
         
@@ -90,6 +91,7 @@ class CoquiTTSEngine(BaseTTSEngine):
             self._synthesize_sync,
             text,
             lang,
+            gender,
         )
 
         return TTSResult(

@@ -76,7 +76,7 @@ class YarnGPTTTSEngine(BaseTTSEngine):
 
         return self._model, self._tokenizer
 
-    def _synthesize_sync(self, text: str, lang_name: str) -> tuple[bytes, float, int]:
+    def _synthesize_sync(self, text: str, lang_name: str, gender: str = "female") -> tuple[bytes, float, int]:
         """Synchronous CPU/GPU bound YarnGPT2 inference."""
         import soundfile as sf
         import numpy as np
@@ -95,8 +95,29 @@ class YarnGPTTTSEngine(BaseTTSEngine):
             return wav_io.getvalue(), duration, sample_rate
 
         try:
-            logger.info(f"YarnGPT2: Generating prompt for lang='{lang_name}', text='{text}'...")
-            prompt = tokenizer.create_prompt(text, lang=lang_name)
+            # Map speaker based on language and requested gender
+            speaker_mapping = {
+                "hausa": {
+                    "female": "hausa_female1",
+                    "male": "hausa_male1"
+                },
+                "yoruba": {
+                    "female": "yoruba_female2",
+                    "male": "yoruba_male2"
+                },
+                "igbo": {
+                    "female": "igbo_female1",
+                    "male": "igbo_male2"
+                },
+                "english": {
+                    "female": "zainab",
+                    "male": "osagie"
+                }
+            }
+            speaker_name = speaker_mapping.get(lang_name, {}).get(gender, "zainab")
+
+            logger.info(f"YarnGPT2: Generating prompt for lang='{lang_name}', speaker='{speaker_name}', text='{text}'...")
+            prompt = tokenizer.create_prompt(text, lang=lang_name, speaker_name=speaker_name)
             input_ids = tokenizer.tokenize_prompt(prompt)
 
             import torch
@@ -112,7 +133,13 @@ class YarnGPTTTSEngine(BaseTTSEngine):
             audio_out = tokenizer.get_audio(codes)
 
             # Convert to float32 numpy array
-            audio_array = audio_out.squeeze().cpu().numpy()
+            try:
+                audio_array = audio_out.squeeze().cpu().numpy()
+            except RuntimeError as re_numpy:
+                if "Numpy is not available" in str(re_numpy):
+                    audio_array = np.array(audio_out.squeeze().cpu().tolist(), dtype=np.float32)
+                else:
+                    raise
             sample_rate = 24000
             duration = len(audio_array) / sample_rate
 
@@ -132,7 +159,7 @@ class YarnGPTTTSEngine(BaseTTSEngine):
             sf.write(wav_io, audio_array, sample_rate, format="WAV", subtype="PCM_16")
             return wav_io.getvalue(), duration, sample_rate
 
-    async def synthesize(self, text: str, language: str) -> TTSResult:
+    async def synthesize(self, text: str, language: str, gender: str = "female") -> TTSResult:
         """Asynchronously synthesizes text to speech using an executor."""
         lang = language.lower().strip()
         # Map codes to YarnGPT local names
@@ -151,6 +178,7 @@ class YarnGPTTTSEngine(BaseTTSEngine):
             self._synthesize_sync,
             text,
             lang_name,
+            gender,
         )
 
         return TTSResult(
