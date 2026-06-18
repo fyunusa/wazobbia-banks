@@ -14,8 +14,9 @@ service postgresql start
 
 # Create wazobia user and database if they don't exist
 # We run as postgres system user
-sudo -u postgres psql -c "CREATE USER wazobia WITH PASSWORD 'wazobia' SUPERUSER;" || true
-sudo -u postgres psql -c "CREATE DATABASE wazobia OWNER wazobia;" || true
+su - postgres -c "psql -c \"CREATE USER wazobia WITH PASSWORD 'wazobia' SUPERUSER;\"" || true
+su - postgres -c "psql -c \"CREATE DATABASE wazobia OWNER wazobia;\"" || true
+
 
 # 3. Configure and start Redis
 echo "Configuring Redis..."
@@ -27,7 +28,7 @@ mkdir -p data/qdrant
 if [ ! -f ./qdrant ]; then
     echo "Downloading Qdrant binary..."
     wget -q https://github.com/qdrant/qdrant/releases/download/v1.12.0/qdrant-x86_64-unknown-linux-gnu.tar.gz
-    tar -xzf qdrant-x86_64-unknown-linux-gnu.tar.gz
+    tar --no-same-owner --no-same-permissions -xzf qdrant-x86_64-unknown-linux-gnu.tar.gz
     rm qdrant-x86_64-unknown-linux-gnu.tar.gz
     chmod +x qdrant
 fi
