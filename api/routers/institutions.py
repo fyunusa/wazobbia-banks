@@ -21,8 +21,8 @@ from fastapi.security import APIKeyHeader
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=True)
 
-# Instantiate sliding window rate limiter for ingest (5 requests per hour)
-ingest_limiter = SlidingWindowRateLimiter("ingest", 5, 3600)
+# Instantiate sliding window rate limiter for ingest (60 requests per hour)
+ingest_limiter = SlidingWindowRateLimiter("ingest", 60, 3600)
 
 
 async def verify_admin_key(
@@ -107,7 +107,7 @@ async def get_institution_detail(slug: str, redis: RedisStore = Depends(get_redi
     return inst
 
 
-@router.post("/institutions/{slug}/ingest", dependencies=[Depends(verify_admin_key), Depends(ingest_limiter)])
+@router.post("/institutions/{slug}/ingest", status_code=202, dependencies=[Depends(verify_admin_key), Depends(ingest_limiter)])
 async def trigger_institution_ingest(slug: str):
     """Triggers an ingestion task in Celery worker thread queue for target bank/slug."""
     try:

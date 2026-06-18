@@ -44,7 +44,7 @@ def run_ingestion_for_institution(client: httpx.Client, slug: str, headers: dict
     if response.status_code == 429:
         result["duration"] = "error: 429 rate limit"
         return result
-    if response.status_code != 202:
+    if response.status_code not in [200, 202]:
         result["duration"] = f"error: HTTP {response.status_code}"
         return result
 
