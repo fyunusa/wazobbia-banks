@@ -82,7 +82,7 @@ REDIS_URL=redis://localhost:6379/0
 # ── App ────────────────────────────────────────────────────
 ENVIRONMENT=production
 LOG_LEVEL=INFO
-ADMIN_API_KEY=\$2b\$12\$/5nMs1CSBk3TuxxXYkH1.OCKGnD2JDgpM5bqJdovQYC2K7LuWX0ka
+ADMIN_API_KEY=$2b$12$/5nMs1CSBk3TuxxXYkH1.OCKGnD2JDgpM5bqJdovQYC2K7LuWX0ka
 VOICE_INFERENCE_ENABLED=true
 WHISPER_MODEL=openai/whisper-large-v3
 EOF
