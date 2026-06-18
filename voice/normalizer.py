@@ -1,0 +1,54 @@
+import re
+
+
+class AudioNormalizer:
+    """Normalizes raw audio formats for STT models."""
+
+    def __init__(self) -> None:
+        pass
+
+    def normalize(self, audio_data: bytes, sample_rate: int = 16000) -> bytes:
+        return audio_data
+
+
+class TextNormalizer:
+    """Normalizes text for TTS output generation."""
+
+    def __init__(self) -> None:
+        pass
+
+    def normalize(self, text: str) -> str:
+        return text
+
+
+class TranscriptNormalizer:
+    """
+    Normalizes speech transcripts for the Wazobia Agent.
+    
+    Ensures currency formatting, filler word removal, and preservation of
+    named entities, USSD codes, Pidgin vocabulary, and code-switched terms.
+    """
+
+    def normalize(self, transcript: str, language: str) -> str:
+        if not transcript:
+            return ""
+
+        # Remove English filler words (erm, uhh, like) for English/Pidgin
+        if language in ("en", "pcm"):
+            # Use word boundary boundaries to make sure we don't match substrings of other words
+            transcript = re.sub(r'\b(erm|uhh|like)\b', '', transcript, flags=re.IGNORECASE)
+
+        # Normalize currency: "naira" -> "₦", while "kobo" remains as is.
+        # Format digits next to naira: "5000 naira" -> "₦5000"
+        transcript = re.sub(r'\b(\d+)\s*naira\b', r'₦\1', transcript, flags=re.IGNORECASE)
+        # Standalone: "the cost in naira is..." -> "the cost in ₦ is..."
+        transcript = re.sub(r'\bnaira\b', '₦', transcript, flags=re.IGNORECASE)
+
+        # Clean up any duplicate punctuation or spaces left behind by filler word removal
+        transcript = re.sub(r'\s+([.,!?])', r'\1', transcript)
+        transcript = re.sub(r',\s*,', ',', transcript)
+
+        # Strip leading/trailing whitespace, normalize internal whitespace
+        transcript = re.sub(r'\s+', ' ', transcript).strip()
+
+        return transcript

@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.git/
+.pytest_cache/
+.coverage
+htmlcov/
+data/
+.hf_cache/
+.temp_audio/

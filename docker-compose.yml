@@ -1,0 +1,139 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: wazobia-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: wazobia-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: wazobia
+      POSTGRES_USER: wazobia
+      POSTGRES_PASSWORD: wazobia
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: wazobia-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      args:
+        - PIP_INDEX_ARGS=--extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+    container_name: wazobia-api
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://wazobia:wazobia@postgres:5432/wazobia
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - ENVIRONMENT=development
+      - HF_HOME=/app/.hf_cache
+      - WHISPER_MODEL
+      - NUMBA_CACHE_DIR=/tmp
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - ollama
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir api --reload-dir agents --reload-dir voice --reload-dir ingestion --reload-dir store --reload-dir config --reload-dir registry
+
+  worker:
+    build:
+      context: .
+      args:
+        - PIP_INDEX_ARGS=--extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match
+    container_name: wazobia-worker
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://wazobia:wazobia@postgres:5432/wazobia
+      - REDIS_URL=redis://redis:6379/0
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+      - ENVIRONMENT=development
+      - HF_HOME=/app/.hf_cache
+      - WHISPER_MODEL
+      - NUMBA_CACHE_DIR=/tmp
+    volumes:
+      - .:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - redis
+      - qdrant
+      - ollama
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+    healthcheck:
+      disable: true
+    command: celery -A ingestion.tasks.celery_app worker --loglevel=info
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: wazobia-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - wazobia-net
+    restart: unless-stopped
+
+  ollama-pull-model:
+    image: curlimages/curl:latest
+    container_name: wazobia-ollama-pull
+    networks:
+      - wazobia-net
+    depends_on:
+      - ollama
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for Ollama API to start...';
+      until curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
+      echo 'Ollama is ready. Automatically pulling model qwen2.5:1.5b...';
+      curl -d '{\"name\": \"qwen2.5:1.5b\"}' http://ollama:11434/api/pull;
+      echo 'Model qwen2.5:1.5b downloaded successfully!';
+      echo 'Automatically pulling embedding model mxbai-embed-large...';
+      curl -d '{\"name\": \"mxbai-embed-large\"}' http://ollama:11434/api/pull;
+      echo 'Model mxbai-embed-large downloaded successfully!';"
+
+volumes:
+  postgres-data:
+  redis-data:
+  ollama-data:
+
+networks:
+  wazobia-net:
+    name: wazobia-net
+    driver: bridge
