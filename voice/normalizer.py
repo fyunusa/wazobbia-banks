@@ -18,7 +18,36 @@ class TextNormalizer:
         pass
 
     def normalize(self, text: str) -> str:
+        if not text:
+            return ""
+
+        # Normalize currency symbol ₦ to "Naira"
+        # e.g., ₦5000 -> 5000 Naira, 5000 ₦ -> 5000 Naira
+        text = re.sub(r'₦\s*(\d+)', r'\1 Naira', text)
+        text = re.sub(r'(\d+)\s*₦', r'\1 Naira', text)
+        text = text.replace('₦', ' Naira ')
+
+        # List of case-insensitive word replacements
+        replacements = {
+            r'\bgtbank\b': 'G T Bank',
+            r'\bgtb\b': 'G T B',
+            r'\bcbn\b': 'C B N',
+            r'\bussd\b': 'U S S D',
+            r'\bopay\b': 'O Pay',
+            r'\bngn\b': 'Naira',
+            r'\busd\b': 'U S D',
+            r'\bfcmb\b': 'F C M B',
+            r'\buba\b': 'U B A',
+            r'\bwema\b': 'Wema',
+        }
+
+        for pattern, replacement in replacements.items():
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+        # Clean up any consecutive whitespaces
+        text = re.sub(r'\s+', ' ', text).strip()
         return text
+
 
 
 class TranscriptNormalizer:
