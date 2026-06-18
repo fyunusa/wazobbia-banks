@@ -450,7 +450,7 @@ class BaseScraper(ABC):
             
         return results
 
-    async def scrape_target_with_crawl(self, target: Any, max_sub_links: int = 5) -> List[RawDocument]:
+    async def scrape_target_with_crawl(self, target: Any, max_sub_links: int = 10) -> List[RawDocument]:
         """Fetches the target URL and crawls relevant sub-links within the same domain at depth 1."""
         from bs4 import BeautifulSoup
         results = []

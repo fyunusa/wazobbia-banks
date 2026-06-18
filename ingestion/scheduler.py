@@ -14,4 +14,9 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=6, minute=0),
         "options": {"expires": 1800},
     },
+    "periodic-institutions-scrape-30min": {
+        "task": "ingestion.tasks.scrape_all_institutions",
+        "schedule": 1800.0,  # 30 minutes in seconds
+        "options": {"expires": 900},
+    },
 }
