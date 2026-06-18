@@ -6,7 +6,7 @@ echo "=== Starting RunPod Host-Level Setup ==="
 # 1. Update APT and install system dependencies
 echo "Installing system dependencies..."
 apt-get update
-apt-get install -y ffmpeg redis-server postgresql postgresql-contrib wget tar curl git build-essential cmake
+apt-get install -y ffmpeg redis-server postgresql postgresql-contrib wget tar curl git build-essential cmake zstd
 
 # 2. Configure and start Postgres
 echo "Configuring PostgreSQL..."
