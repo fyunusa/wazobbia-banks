@@ -3,7 +3,7 @@ import json
 import bcrypt
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Annotated
 from fastapi import APIRouter, Header, HTTPException, Depends, Request, UploadFile, File
 from celery.result import AsyncResult
 
@@ -203,7 +203,7 @@ upload_limiter = SlidingWindowRateLimiter("upload", 20, 3600)
 @router.post("/institutions/{slug}/upload", status_code=202, dependencies=[Depends(verify_admin_key), Depends(upload_limiter)])
 async def upload_institution_documents(
     slug: str,
-    files: List[UploadFile] = File(...),
+    files: Annotated[List[UploadFile], File()] = ...,
 ):
     """Upload documents (DOCX, JSON, PDF) for an institution and trigger ingestion.
     
