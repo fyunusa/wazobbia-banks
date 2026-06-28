@@ -203,10 +203,7 @@ upload_limiter = SlidingWindowRateLimiter("upload", 20, 3600)
 @router.post("/institutions/{slug}/upload", status_code=202, dependencies=[Depends(verify_admin_key), Depends(upload_limiter)])
 async def upload_institution_documents(
     slug: str,
-    files: list[UploadFile] = File(
-        ...,
-        description="Audio files to upload (DOCX, JSON, or PDF, max 50MB each)",
-    ),
+    files: list[UploadFile] = File(default_factory=list, description="Select multiple files to upload (DOCX, JSON, or PDF)"),
 ):
     """Upload documents (DOCX, JSON, PDF) for an institution and trigger ingestion.
     
@@ -239,6 +236,9 @@ async def upload_institution_documents(
     parser = UniversalFileParser()
     raw_documents = []
     file_summaries = []
+    
+    # Filter out empty strings sent by Swagger when no files are selected
+    files = [file for file in files if file and not isinstance(file, str)]
     
     for file in files:
         if not file.filename:
