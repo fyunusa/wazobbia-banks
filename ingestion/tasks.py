@@ -303,3 +303,166 @@ async def _reindex_institution_async(institution_slug: str) -> dict:
 def reindex_institution(institution_slug: str) -> dict:
     """Wipes an institution's vectors from Qdrant and triggers a fresh scrape run."""
     return asyncio.run(_reindex_institution_async(institution_slug))
+
+
+async def _ingest_uploaded_documents_async(
+    institution_slug: str, 
+    documents: List[RawDocument],
+    upload_batch_id: str,
+) -> Dict[str, Any]:
+    """Process uploaded documents through the standard ingestion pipeline.
+    
+    Args:
+        institution_slug: Target institution slug
+        documents: List of RawDocument objects from file parsing
+        upload_batch_id: Unique identifier for this upload batch
+        
+    Returns:
+        Summary dict with ingestion statistics
+    """
+    start_time = time.time()
+    logger.info(
+        f"Starting ingestion pipeline for uploaded documents (batch: {upload_batch_id}) "
+        f"for institution: {institution_slug}"
+    )
+
+    documents_processed = 0
+    chunks_created = 0
+    points_upserted = 0
+    skipped_dedup = 0
+
+    qdrant = QdrantStore()
+    cleaner = DocumentCleaner()
+    chunker = SemanticChunker()
+    embedder = Embedder()
+
+    try:
+        # Validate institution exists
+        get_institution(institution_slug)
+
+        # Ensure vector store collection exists
+        await qdrant.ensure_collection()
+
+        # Clean documents
+        cleaned_docs = []
+        for raw in documents:
+            try:
+                cleaned = await cleaner.clean(raw)
+                cleaned_docs.append(cleaned)
+                documents_processed += 1
+            except Exception as e:
+                logger.error(
+                    f"Failed cleaning uploaded document {raw.title or raw.url}: {e}",
+                    exc_info=True
+                )
+
+        # Chunk cleaned documents
+        all_chunks = []
+        for cleaned in cleaned_docs:
+            try:
+                doc_chunks = chunker.chunk(cleaned)
+                all_chunks.extend(doc_chunks)
+            except Exception as e:
+                logger.error(
+                    f"Failed chunking cleaned document {cleaned.url}: {e}",
+                    exc_info=True
+                )
+
+        chunks_created = len(all_chunks)
+
+        # Filter duplicates (skip if content_hash already in Qdrant)
+        filtered_chunks = []
+        for chunk in all_chunks:
+            try:
+                exists = await qdrant.content_hash_exists(chunk.content_hash, chunk.institution_slug)
+                if not exists:
+                    filtered_chunks.append(chunk)
+                else:
+                    skipped_dedup += 1
+            except Exception as e:
+                logger.error(f"Failed checking dedup index in Qdrant for hash {chunk.content_hash}: {e}")
+                # Safe fallback: keep chunk if check fails
+                filtered_chunks.append(chunk)
+
+        # Generate embeddings and upsert
+        if filtered_chunks:
+            points = await embedder.embed_chunks(filtered_chunks)
+            await qdrant.upsert_points(points)
+            points_upserted = len(points)
+
+        duration = time.time() - start_time
+
+        # Invalidate Redis caches for institution_slug on successful completion
+        try:
+            redis_store = RedisStore()
+            await redis_store.invalidate_institution_cache(institution_slug)
+            await redis_store.close()
+        except Exception as redis_err:
+            logger.error(f"Failed to invalidate cache for {institution_slug}: {redis_err}")
+
+        summary = {
+            "upload_batch_id": upload_batch_id,
+            "institution_slug": institution_slug,
+            "documents_processed": documents_processed,
+            "chunks_created": chunks_created,
+            "points_upserted": points_upserted,
+            "skipped_dedup": skipped_dedup,
+            "duration_seconds": round(duration, 2),
+        }
+        logger.info(
+            f"Ingestion pipeline completed for uploaded documents (batch: {upload_batch_id})",
+            extra=summary
+        )
+        return summary
+
+    except Exception as exc:
+        duration = time.time() - start_time
+        logger.error(
+            f"Ingestion pipeline failed for uploaded documents (batch: {upload_batch_id}): {exc}",
+            exc_info=True,
+            extra={
+                "upload_batch_id": upload_batch_id,
+                "institution_slug": institution_slug,
+                "documents_processed": documents_processed,
+                "chunks_created": chunks_created,
+                "duration_seconds": round(duration, 2),
+                "error": str(exc),
+            }
+        )
+        raise
+    finally:
+        await qdrant.close()
+
+
+@celery_app.task(bind=True, max_retries=2, default_retry_delay=30)
+def ingest_uploaded_documents(
+    self,
+    institution_slug: str,
+    raw_documents: List[Dict[str, Any]],
+    upload_batch_id: str,
+) -> dict:
+    """Celery task to process uploaded documents through the ingestion pipeline.
+    
+    Args:
+        institution_slug: Target institution slug
+        raw_documents: Serialized list of RawDocument dictionaries
+        upload_batch_id: Unique identifier for this upload batch
+        
+    Returns:
+        Ingestion summary dictionary
+    """
+    try:
+        # Deserialize RawDocument objects
+        documents = [RawDocument(**doc_dict) for doc_dict in raw_documents]
+        
+        # Run async ingestion synchronously within celery worker thread context
+        return asyncio.run(_ingest_uploaded_documents_async(
+            institution_slug,
+            documents,
+            upload_batch_id,
+        ))
+    except Exception as exc:
+        logger.warning(
+            f"Retrying upload ingestion task (batch: {upload_batch_id}) due to exception: {exc}"
+        )
+        raise self.retry(exc=exc, countdown=30 * (2**self.request.retries))

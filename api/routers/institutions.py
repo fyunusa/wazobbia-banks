@@ -1,14 +1,16 @@
 import logging
 import json
 import bcrypt
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any
-from fastapi import APIRouter, Header, HTTPException, Depends, Request
+from fastapi import APIRouter, Header, HTTPException, Depends, Request, UploadFile, File
 from celery.result import AsyncResult
 
 from config.settings import settings
 from registry.institutions import list_institutions, get_institution, Institution
-from ingestion.tasks import scrape_institution, celery_app
+from ingestion.tasks import scrape_institution, ingest_uploaded_documents, celery_app
+from ingestion.processors.parsers import UniversalFileParser
 from api.dependencies import get_qdrant_store, get_redis_store, SlidingWindowRateLimiter
 from store.qdrant_client import QdrantStore
 from store.redis_client import RedisStore
@@ -192,3 +194,115 @@ async def get_ingestion_task_status(task_id: str):
             response_data["result"] = res.result
 
     return response_data
+
+
+# Instantiate sliding window rate limiter for uploads (20 requests per hour)
+upload_limiter = SlidingWindowRateLimiter("upload", 20, 3600)
+
+
+@router.post("/institutions/{slug}/upload", status_code=202, dependencies=[Depends(verify_admin_key), Depends(upload_limiter)])
+async def upload_institution_documents(
+    slug: str,
+    files: List[UploadFile] = File(...),
+):
+    """Upload documents (DOCX, JSON, PDF) for an institution and trigger ingestion.
+    
+    Accepts multiple files of supported formats and queues them for processing through
+    the standard ingestion pipeline (cleaning, chunking, embedding, Qdrant storage).
+    
+    Args:
+        slug: Institution slug identifier
+        files: List of files to upload (DOCX, JSON, or PDF format)
+        
+    Returns:
+        Batch upload response with task ID and file processing details
+    """
+    # Validate institution exists
+    try:
+        get_institution(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    
+    if len(files) > 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 10 files allowed per upload batch"
+        )
+    
+    # Validate and parse files
+    parser = UniversalFileParser()
+    raw_documents = []
+    file_summaries = []
+    
+    for file in files:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="File has no filename")
+        
+        try:
+            # Read file content
+            content = await file.read()
+            
+            if not content:
+                raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
+            
+            # Limit file size (50MB per file)
+            if len(content) > 50 * 1024 * 1024:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File {file.filename} exceeds 50MB limit"
+                )
+            
+            # Parse the file
+            raw_doc = await parser.parse(content, file.filename, slug)
+            raw_documents.append(raw_doc)
+            
+            file_summaries.append({
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "size_bytes": len(content),
+                "status": "parsed",
+            })
+            
+        except ValueError as e:
+            logger.error(f"Validation error parsing file {file.filename}: {e}")
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to process file {file.filename}: {str(e)}"
+            )
+    
+    # Generate unique batch ID
+    upload_batch_id = str(uuid.uuid4())
+    
+    # Serialize raw documents for Celery task
+    raw_docs_dicts = [doc.model_dump() for doc in raw_documents]
+    
+    # Queue the Celery task
+    task = ingest_uploaded_documents.delay(slug, raw_docs_dicts, upload_batch_id)
+    
+    logger.info(
+        f"Queued upload ingestion task for {slug}. "
+        f"Batch ID: {upload_batch_id}, Task ID: {task.id}, "
+        f"Files: {len(files)}",
+        extra={
+            "institution_slug": slug,
+            "upload_batch_id": upload_batch_id,
+            "task_id": task.id,
+            "num_files": len(files),
+        }
+    )
+    
+    return {
+        "upload_batch_id": upload_batch_id,
+        "institution_slug": slug,
+        "task_id": task.id,
+        "status": "queued",
+        "num_files": len(files),
+        "files": file_summaries,
+        "detail": f"Upload batch {upload_batch_id} successfully sent to processing queue.",
+    }
