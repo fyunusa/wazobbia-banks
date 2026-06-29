@@ -360,7 +360,7 @@ async def _ingest_uploaded_documents_async(
         all_chunks = []
         for cleaned in cleaned_docs:
             try:
-                doc_chunks = chunker.chunk(cleaned)
+                doc_chunks = chunker.chunk(cleaned, upload_batch_id=upload_batch_id)
                 all_chunks.extend(doc_chunks)
             except Exception as e:
                 logger.error(

@@ -24,6 +24,7 @@ class Chunk(BaseModel):
     title: Optional[str] = None
     scraped_at: datetime
     content_hash: str
+    upload_batch_id: Optional[str] = None
 
 
 class SemanticChunker:
@@ -43,8 +44,14 @@ class SemanticChunker:
         sentences = re.split(r'(?<=[.!?])\s+', text)
         return [s.strip() for s in sentences if s.strip()]
 
-    def chunk(self, doc: CleanedDocument) -> List[Chunk]:
-        """Splits CleanedDocument text and tables into chunks with prepended metadata."""
+    def chunk(self, doc: CleanedDocument, upload_batch_id: Optional[str] = None) -> List[Chunk]:
+        """Splits CleanedDocument text and tables into chunks with prepended metadata.
+        
+        Args:
+            doc: CleanedDocument to chunk
+            upload_batch_id: Optional batch ID for tracking uploaded documents
+        """
+        logger.info(f"Chunking document: {doc.title or doc.url}, upload_batch_id={upload_batch_id}")
         chunks: List[Chunk] = []
 
         # Resolve institution display name
@@ -123,7 +130,9 @@ class SemanticChunker:
                     title=doc.title,
                     scraped_at=doc.scraped_at,
                     content_hash=content_hash,
+                    upload_batch_id=upload_batch_id,
                 )
             )
 
+        logger.info(f"Created {len(chunks)} chunks with upload_batch_id={upload_batch_id}")
         return chunks

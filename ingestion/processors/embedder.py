@@ -187,6 +187,8 @@ class Embedder:
             except Exception:
                 inst_name = chunk.institution_slug.upper()
 
+            logger.info(f"Creating KnowledgePoint from chunk: upload_batch_id={chunk.upload_batch_id}")
+            
             knowledge_points.append(
                 KnowledgePoint(
                     id=chunk.id,
@@ -201,6 +203,8 @@ class Embedder:
                     content_hash=chunk.content_hash,
                     is_verified=False,
                     language="en",
+                    upload_batch_id=chunk.upload_batch_id,
+                    chunk_index=chunk.chunk_index,
                 )
             )
 

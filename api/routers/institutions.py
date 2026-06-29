@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 from fastapi import APIRouter, Header, HTTPException, Depends, Request, UploadFile, File
 from celery.result import AsyncResult
+from qdrant_client.http import models
 
 from config.settings import settings
 from registry.institutions import list_institutions, get_institution, Institution
@@ -177,7 +178,27 @@ async def get_institution_qdrant_stats(
 @router.get("/ingest/tasks/{task_id}", dependencies=[Depends(verify_admin_key)])
 async def get_ingestion_task_status(task_id: str):
     """Queries and returns Celery task execution status and outcomes."""
+    # Validate task_id format (should be a valid UUID)
+    if not task_id or len(task_id) < 8:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid task_id format: {task_id}"
+        )
+    
     res = AsyncResult(task_id, app=celery_app)
+
+    # Celery returns "PENDING" for non-existent tasks, so we need to distinguish
+    # A task is truly pending if it was recently submitted, otherwise it's likely invalid
+    # Check if the task has any state recorded in the backend
+    task_state = celery_app.backend.get_state(task_id)
+    
+    if task_state is None and res.status == "PENDING":
+        # Task doesn't exist in backend - it was never registered
+        logger.warning(f"Task {task_id} not found in Celery backend")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task {task_id} not found. Check that you're using the correct task_id (not batch_id)."
+        )
 
     response_data = {
         "task_id": task_id,
@@ -203,16 +224,16 @@ upload_limiter = SlidingWindowRateLimiter("upload", 20, 3600)
 @router.post("/institutions/{slug}/upload", status_code=202, dependencies=[Depends(verify_admin_key), Depends(upload_limiter)])
 async def upload_institution_documents(
     slug: str,
-    files: list[UploadFile] = File(default_factory=list, description="Select multiple files to upload (DOCX, JSON, or PDF)"),
+    file: UploadFile = File(..., description="Select a file to upload (DOCX, JSON, or PDF)"),
 ):
-    """Upload documents (DOCX, JSON, PDF) for an institution and trigger ingestion.
+    """Upload a document (DOCX, JSON, or PDF) for an institution and trigger ingestion.
     
-    Accepts multiple files of supported formats and queues them for processing through
+    Accepts a single file of supported format and queues it for processing through
     the standard ingestion pipeline (cleaning, chunking, embedding, Qdrant storage).
     
     Args:
         slug: Institution slug identifier
-        files: List of files to upload (DOCX, JSON, or PDF format)
+        file: File to upload (DOCX, JSON, or PDF format)
         
     Returns:
         Batch upload response with task ID and file processing details
@@ -223,61 +244,48 @@ async def upload_institution_documents(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
-    if not files:
-        raise HTTPException(status_code=400, detail="No files provided")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="No file provided or file has no filename")
     
-    if len(files) > 10:
-        raise HTTPException(
-            status_code=400,
-            detail="Maximum 10 files allowed per upload batch"
-        )
-    
-    # Validate and parse files
+    # Validate and parse file
     parser = UniversalFileParser()
     raw_documents = []
     file_summaries = []
     
-    # Filter out empty strings sent by Swagger when no files are selected
-    files = [file for file in files if file and not isinstance(file, str)]
-    
-    for file in files:
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="File has no filename")
+    try:
+        # Read file content
+        content = await file.read()
         
-        try:
-            # Read file content
-            content = await file.read()
-            
-            if not content:
-                raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
-            
-            # Limit file size (50MB per file)
-            if len(content) > 50 * 1024 * 1024:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File {file.filename} exceeds 50MB limit"
-                )
-            
-            # Parse the file
-            raw_doc = await parser.parse(content, file.filename, slug)
-            raw_documents.append(raw_doc)
-            
-            file_summaries.append({
-                "filename": file.filename,
-                "content_type": file.content_type,
-                "size_bytes": len(content),
-                "status": "parsed",
-            })
-            
-        except ValueError as e:
-            logger.error(f"Validation error parsing file {file.filename}: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
+        if not content:
+            raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
+        
+        # Limit file size (50MB per file)
+        if len(content) > 50 * 1024 * 1024:
             raise HTTPException(
-                status_code=400,
-                detail=f"Failed to process file {file.filename}: {str(e)}"
+                status_code=413,
+                detail=f"File {file.filename} exceeds 50MB limit"
             )
+        
+        # Parse the file
+        raw_doc = await parser.parse(content, file.filename, slug)
+        raw_documents.append(raw_doc)
+        
+        file_summaries.append({
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "size_bytes": len(content),
+            "status": "parsed",
+        })
+        
+    except ValueError as e:
+        logger.error(f"Validation error parsing file {file.filename}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to process file {file.filename}: {str(e)}"
+        )
     
     # Generate unique batch ID
     upload_batch_id = str(uuid.uuid4())
@@ -291,12 +299,12 @@ async def upload_institution_documents(
     logger.info(
         f"Queued upload ingestion task for {slug}. "
         f"Batch ID: {upload_batch_id}, Task ID: {task.id}, "
-        f"Files: {len(files)}",
+        f"File: {file.filename}",
         extra={
             "institution_slug": slug,
             "upload_batch_id": upload_batch_id,
             "task_id": task.id,
-            "num_files": len(files),
+            "file_name": file.filename,
         }
     )
     
@@ -305,7 +313,123 @@ async def upload_institution_documents(
         "institution_slug": slug,
         "task_id": task.id,
         "status": "queued",
-        "num_files": len(files),
-        "files": file_summaries,
+        "file": file_summaries[0],
         "detail": f"Upload batch {upload_batch_id} successfully sent to processing queue.",
     }
+
+
+@router.get("/institutions/{slug}/uploads/{batch_id}/chunks", dependencies=[Depends(verify_admin_key)])
+async def get_upload_chunks(
+    slug: str,
+    batch_id: str,
+    qdrant: QdrantStore = Depends(get_qdrant_store),
+):
+    """Retrieve all extracted chunks from an uploaded document batch.
+    
+    Args:
+        slug: Institution slug
+        batch_id: Upload batch ID to retrieve chunks for
+        
+    Returns:
+        List of chunks with metadata (content, category, source, etc.)
+    """
+    # Validate institution exists
+    try:
+        get_institution(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    try:
+        chunks = await qdrant.search_by_batch_id(batch_id)
+        
+        if not chunks:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No chunks found for batch {batch_id} in institution {slug}"
+            )
+        
+        logger.info(
+            f"Retrieved {len(chunks)} chunks for upload batch {batch_id} in {slug}",
+            extra={
+                "institution_slug": slug,
+                "upload_batch_id": batch_id,
+                "chunk_count": len(chunks),
+            }
+        )
+        
+        return {
+            "upload_batch_id": batch_id,
+            "institution_slug": slug,
+            "chunk_count": len(chunks),
+            "chunks": chunks,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error retrieving chunks for batch {batch_id}: {e}",
+            exc_info=True
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error retrieving chunks: {str(e)}"
+        )
+
+
+@router.get("/institutions/{slug}/debug/points", dependencies=[Depends(verify_admin_key)])
+async def debug_institution_points(
+    slug: str,
+    limit: int = 10,
+    qdrant: QdrantStore = Depends(get_qdrant_store),
+):
+    """Debug endpoint: Show raw points for an institution to verify upload_batch_id storage.
+    
+    Args:
+        slug: Institution slug
+        limit: Max points to return
+        
+    Returns:
+        Raw point data with all payloads
+    """
+    # Validate institution exists
+    try:
+        get_institution(slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    try:
+        filter_condition = models.FieldCondition(
+            key="institution_slug",
+            match=models.MatchValue(value=slug),
+        )
+        
+        response = await qdrant.client.scroll(
+            collection_name=qdrant.collection_name,
+            scroll_filter=models.Filter(must=[filter_condition]),
+            limit=limit,
+            with_payload=True,
+            with_vectors=False,
+        )
+        
+        points = response[0] if isinstance(response, tuple) else response
+        
+        debug_data = []
+        for hit in points:
+            payload = hit.payload or {}
+            debug_data.append({
+                "id": str(hit.id),
+                "upload_batch_id": payload.get("upload_batch_id"),
+                "category": payload.get("category"),
+                "content_preview": payload.get("content", "")[:100],
+            })
+        
+        logger.info(f"Debug: Retrieved {len(debug_data)} points for {slug}")
+        
+        return {
+            "institution_slug": slug,
+            "point_count": len(debug_data),
+            "points": debug_data,
+        }
+    except Exception as e:
+        logger.error(f"Debug query error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))

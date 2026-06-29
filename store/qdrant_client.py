@@ -24,6 +24,8 @@ class KnowledgePoint(BaseModel):
     content_hash: str
     is_verified: bool = False
     language: str = "en"
+    upload_batch_id: Optional[str] = None
+    chunk_index: Optional[int] = None
 
 
 class SearchResult(BaseModel):
@@ -98,8 +100,24 @@ class QdrantStore:
                     lowercase=True,
                 ),
             )
+            # Index for upload batch filtering
+            await self.client.create_payload_index(
+                collection_name=self.collection_name,
+                field_name="upload_batch_id",
+                field_schema=models.PayloadSchemaType.KEYWORD,
+            )
         else:
             logger.debug(f"Collection {self.collection_name} already exists.")
+            # Ensure upload_batch_id index exists (safe to call on existing collection)
+            try:
+                await self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="upload_batch_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
+                logger.debug("Created upload_batch_id index on existing collection")
+            except Exception as e:
+                logger.debug(f"upload_batch_id index likely already exists: {e}")
 
     async def upsert_points(self, points: List[KnowledgePoint]) -> Any:
         """Performs batch upserts of knowledge points to Qdrant."""
@@ -118,7 +136,10 @@ class QdrantStore:
                 "content_hash": p.content_hash,
                 "is_verified": p.is_verified,
                 "language": p.language,
+                "upload_batch_id": p.upload_batch_id,
+                "chunk_index": p.chunk_index,
             }
+            logger.info(f"Upserting point {p.id} with upload_batch_id={p.upload_batch_id}")
             qdrant_points.append(
                 models.PointStruct(
                     id=p.id,
@@ -140,7 +161,10 @@ class QdrantStore:
             total_upserted += len(chunk)
 
         elapsed = time.time() - start_time
-        logger.info(f"Upserted {total_upserted} points to Qdrant in {elapsed:.3f}s")
+        # Log sample of batch IDs being stored
+        batch_ids = [p.upload_batch_id for p in points if p.upload_batch_id]
+        batch_id_summary = batch_ids[0] if batch_ids else "None"
+        logger.info(f"Upserted {total_upserted} points to Qdrant in {elapsed:.3f}s. Sample batch_id: {batch_id_summary}")
         return {"upserted": total_upserted, "time_taken": elapsed}
 
     async def search(
@@ -190,6 +214,50 @@ class QdrantStore:
                 )
             )
         return results
+
+    async def search_by_batch_id(self, upload_batch_id: str) -> List[Dict[str, Any]]:
+        """Retrieve all chunks for a specific upload batch.
+        
+        Args:
+            upload_batch_id: The batch ID to search for
+            
+        Returns:
+            List of chunk dictionaries with metadata
+        """
+        filter_condition = models.FieldCondition(
+            key="upload_batch_id",
+            match=models.MatchValue(value=upload_batch_id),
+        )
+
+        response = await self.client.scroll(
+            collection_name=self.collection_name,
+            scroll_filter=models.Filter(must=[filter_condition]),
+            limit=1000,  # Max chunks per batch
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        results = []
+        # response returns (points, next_page_offset) tuple
+        points = response[0] if isinstance(response, tuple) else response
+        
+        for hit in points:
+            payload = hit.payload or {}
+            results.append({
+                "id": str(hit.id),
+                "content": payload.get("content", ""),
+                "chunk_index": payload.get("chunk_index"),
+                "category": payload.get("category", ""),
+                "sub_category": payload.get("sub_category"),
+                "source_url": payload.get("source_url", ""),
+                "institution_slug": payload.get("institution_slug", ""),
+                "institution_name": payload.get("institution_name", ""),
+                "scraped_at": payload.get("scraped_at"),
+                "language": payload.get("language", "en"),
+            })
+        
+        # Sort by chunk_index, handling None values
+        return sorted(results, key=lambda x: (x.get("chunk_index") is None, x.get("chunk_index")))
 
     async def hybrid_search(
         self,
