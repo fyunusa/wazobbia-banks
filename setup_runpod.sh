@@ -35,9 +35,13 @@ if [ ! -f ./qdrant ]; then
     chmod +x qdrant
 fi
 
-# Run Qdrant in the background (directing data to persistent folder with absolute path)
-nohup ./qdrant --uri "http://0.0.0.0:6333" --storage-path "$QDRANT_DATA_DIR" > qdrant.log 2>&1 &
-echo "Qdrant started in background with storage path: $QDRANT_DATA_DIR"
+# Run Qdrant in the background
+# Note: Qdrant stores data in current working directory by default
+# We've already created data/qdrant above, so it will use that
+nohup ./qdrant --uri "http://0.0.0.0:6333" > qdrant.log 2>&1 &
+echo "Qdrant started in background. Data will be stored in: $QDRANT_DATA_DIR"
+echo "Waiting for Qdrant to initialize..."
+sleep 3
 
 # 5. Install and configure Ollama
 echo "Installing Ollama..."
