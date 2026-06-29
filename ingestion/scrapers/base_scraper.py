@@ -537,30 +537,44 @@ class BaseScraper(ABC):
 
         # Deduplicate
         sub_links = list(dict.fromkeys(sub_links))
+        logger.info(f"[{self.slug}] Extracted {len(sub_links)} total sub-links from {target.url}")
 
-        # 3. Filter relevant links by category keywords
+        # 3. Filter relevant links by category keywords (permissive - trust domain filtering)
         keywords = {
-            "fees": ["fee", "charge", "tariff", "pricing", "cost", "payment", "card", "maintenance", "guide", "limit", "price", "commission"],
-            "faq": ["faq", "frequently", "help", "support", "question", "guide", "center"],
-            "products": ["account", "savings", "current", "card", "loan", "deposit", "transfer", "app", "ussd", "personal", "business", "product"],
-            "ussd": ["ussd", "code", "shortcode", "dial", "transfer"],
-            "rates": ["rate", "interest", "exchange", "forex", "fx"],
-            "regulatory": ["circular", "guideline", "policy", "directive", "regulation", "act", "notice", "cbn", "ndic", "charge", "tariff"],
+            "fees": ["fee", "charge", "tariff", "pricing", "cost", "payment", "card", "maintenance", "guide", "limit", "price", "commission", "service", "bank"],
+            "faq": ["faq", "frequently", "help", "support", "question", "guide", "center", "centre", "contact"],
+            "products": ["account", "savings", "current", "card", "loan", "deposit", "transfer", "app", "ussd", "personal", "business", "product", "service", "solution"],
+            "ussd": ["ussd", "code", "shortcode", "dial", "transfer", "mobile"],
+            "rates": ["rate", "interest", "exchange", "forex", "fx", "loan", "savings"],
+            "regulatory": ["circular", "guideline", "policy", "directive", "regulation", "act", "notice", "cbn", "ndic", "charge", "tariff", "compliance"],
             "news": ["charges", "fees", "tariff", "ussd", "rate", "policy", "cbn", "directive", "nigeria", "news"],
         }
 
         cat_kws = keywords.get(target.category, [])
         relevant_sub_links = []
 
+        # Keep ALL sub-links from same domain (less filtering = more coverage)
+        # Only filter out obvious admin/utility pages
+        exclude_patterns = ["/admin", "/login", "/account", "/user/", "/profile", "/settings", "/api/", 
+                           "/logout", "/search", "/contact-us"]
+        
         for link in sub_links:
             link_lower = link.lower()
-            if any(kw in link_lower for kw in cat_kws):
+            
+            # Skip obvious admin/utility pages
+            if any(pattern in link_lower for pattern in exclude_patterns):
+                continue
+            
+            # For permissive filtering: include if it has ANY relevant keyword
+            # OR if it's a general page that might have content (like /help, /about)
+            if any(kw in link_lower for kw in cat_kws) or any(term in link_lower for term in ["help", "about", "service"]):
                 relevant_sub_links.append(link)
 
         # Limit count
         relevant_sub_links = relevant_sub_links[:max_sub_links]
+        logger.info(f"[{self.slug}] Filtered to {len(relevant_sub_links)}/{len(sub_links)} relevant sub-links (max_sub_links={max_sub_links}, category={target.category})")
         if relevant_sub_links:
-            logger.info(f"[{self.slug}] Found {len(relevant_sub_links)} relevant sub-links for crawl: {relevant_sub_links}")
+            logger.debug(f"[{self.slug}] Sub-links to crawl: {relevant_sub_links[:10]}")  # Log first 10
 
         # 4. Fetch crawled sub-links
         for link in relevant_sub_links:
