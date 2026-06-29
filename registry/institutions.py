@@ -41,18 +41,21 @@ INSTITUTIONS: Dict[str, Institution] = {
         hq="Lagos, Nigeria",
         website="https://www.gtbank.com",
         scrape_targets=[
+            # Fees & Charges
             ScrapeTarget(
                 url="https://www.gtbank.com/help-centre/bank-charges",
                 category="fees",
                 requires_js=False,
                 notes="GTBank tariff and charges information",
             ),
+            # FAQs
             ScrapeTarget(
                 url="https://www.gtbank.com/help-centre/faqs",
                 category="faq",
                 requires_js=True,
                 notes="Frequently asked questions",
             ),
+            # Personal Banking Products
             ScrapeTarget(
                 url="https://www.gtbank.com/personal-banking/cards",
                 category="products",
@@ -65,6 +68,53 @@ INSTITUTIONS: Dict[str, Institution] = {
             ),
             ScrapeTarget(
                 url="https://www.gtbank.com/personal-banking/accounts",
+                category="products",
+                requires_js=False,
+            ),
+            # Business Banking
+            ScrapeTarget(
+                url="https://www.gtbank.com/business-banking",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.gtbank.com/business-banking/products",
+                category="products",
+                requires_js=False,
+            ),
+            # Corporate Banking
+            ScrapeTarget(
+                url="https://www.gtbank.com/corporate-banking",
+                category="products",
+                requires_js=False,
+            ),
+            # Investment Services
+            ScrapeTarget(
+                url="https://www.gtbank.com/investment-services",
+                category="products",
+                requires_js=False,
+            ),
+            # Digital Banking
+            ScrapeTarget(
+                url="https://www.gtbank.com/digital-banking",
+                category="products",
+                requires_js=False,
+            ),
+            # Help Centre
+            ScrapeTarget(
+                url="https://www.gtbank.com/help-centre",
+                category="faq",
+                requires_js=False,
+            ),
+            # About GTBank
+            ScrapeTarget(
+                url="https://www.gtbank.com/about",
+                category="regulatory",
+                requires_js=False,
+            ),
+            # Services
+            ScrapeTarget(
+                url="https://www.gtbank.com/services",
                 category="products",
                 requires_js=False,
             ),
@@ -101,6 +151,36 @@ INSTITUTIONS: Dict[str, Institution] = {
             ScrapeTarget(
                 url="https://www.zenithbank.com/personal-banking/loans",
                 category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/personal-banking/accounts",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/business-banking",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/corporate-banking",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/digital-banking",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/investment",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.zenithbank.com/customer-service",
+                category="faq",
                 requires_js=False,
             ),
         ],
@@ -309,6 +389,26 @@ INSTITUTIONS: Dict[str, Institution] = {
                 category="products",
                 requires_js=False,
             ),
+            ScrapeTarget(
+                url="https://www.opayweb.com/spend",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.opayweb.com/send",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.opayweb.com/help",
+                category="faq",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://www.opayweb.com/about",
+                category="regulatory",
+                requires_js=False,
+            ),
         ],
         logo_slug="opay",
         active=True,
@@ -336,6 +436,26 @@ INSTITUTIONS: Dict[str, Institution] = {
             ScrapeTarget(
                 url="https://kudabank.com/spend",
                 category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://kudabank.com/borrow",
+                category="products",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://kudabank.com/about",
+                category="regulatory",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://kudabank.com/faq",
+                category="faq",
+                requires_js=False,
+            ),
+            ScrapeTarget(
+                url="https://kudabank.com/help",
+                category="faq",
                 requires_js=False,
             ),
         ],
