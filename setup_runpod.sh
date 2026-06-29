@@ -25,6 +25,7 @@ service redis-server start
 # 4. Download and configure Qdrant
 echo "Configuring Qdrant..."
 mkdir -p data/qdrant
+chmod 755 data/qdrant
 if [ ! -f ./qdrant ]; then
     echo "Downloading Qdrant binary..."
     wget -q https://github.com/qdrant/qdrant/releases/download/v1.12.0/qdrant-x86_64-unknown-linux-gnu.tar.gz
@@ -34,7 +35,7 @@ if [ ! -f ./qdrant ]; then
 fi
 
 # Run Qdrant in the background (directing data to persistent folder)
-nohup ./qdrant --uri "http://localhost:6333" > qdrant.log 2>&1 &
+nohup ./qdrant --uri "http://0.0.0.0:6333" --storage-path ./data/qdrant > qdrant.log 2>&1 &
 echo "Qdrant started in background."
 
 # 5. Install and configure Ollama
