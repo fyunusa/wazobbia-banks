@@ -138,10 +138,20 @@ class RAGQueryEngine:
 
     async def _translate_text(self, text: str, source_or_target: str, to_english: bool = True) -> str:
         """Translates text between English and target low-resource Nigerian languages using LLM."""
+        # Map language codes to full names
+        lang_map = {
+            "yo": "Yoruba",
+            "ha": "Hausa",
+            "ig": "Igbo",
+            "pcm": "Nigerian Pidgin",
+            "en": "English",
+        }
+        target_lang = lang_map.get(source_or_target, source_or_target)
+        
         if to_english:
             prompt = f"Translate the following text to standard English. Reply ONLY with the translated text. Do not add any conversational preamble or explanations.\n\nText: {text}"
         else:
-            prompt = f"Translate the following English text to {source_or_target}. Reply ONLY with the translated text. Maintain formatting and disclaimers. Do not add any conversational preamble or explanations.\n\nText: {text}"
+            prompt = f"Translate the following English text to {target_lang}. Reply ONLY with the translated text. Maintain formatting and disclaimers. Do not add any conversational preamble or explanations.\n\nText: {text}"
 
         try:
             # Call Llama 3.1 model via vLLM
