@@ -49,17 +49,37 @@ if ! command -v ollama &> /dev/null; then
     curl -fsSL https://ollama.com/install.sh | sh
 fi
 
-# Start Ollama in background
-nohup ollama serve > ollama.log 2>&1 &
+# Create Ollama models directory and set explicit environment
+OLLAMA_MODELS_DIR="$(pwd)/ollama_models"
+mkdir -p "$OLLAMA_MODELS_DIR"
+chmod 755 "$OLLAMA_MODELS_DIR"
 
-echo "Waiting for Ollama to start..."
-until curl -s http://localhost:11434/api/tags > /dev/null; do
+# Start Ollama in background with explicit models directory
+echo "Starting Ollama with models directory: $OLLAMA_MODELS_DIR"
+nohup env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama serve > ollama.log 2>&1 &
+OLLAMA_PID=$!
+
+echo "Waiting for Ollama to start (PID: $OLLAMA_PID)..."
+sleep 5
+for i in {1..30}; do
+    if curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        echo "Ollama is responding"
+        break
+    fi
+    echo "Attempt $i: Waiting for Ollama..."
     sleep 2
 done
 
+# Check if Ollama is still running
+if ! kill -0 $OLLAMA_PID 2>/dev/null; then
+    echo "ERROR: Ollama process died. Check ollama.log:"
+    tail -50 ollama.log
+    exit 1
+fi
+
 echo "Ollama is ready. Pulling models (this may take a few minutes)..."
-ollama pull llama3.1
-ollama pull mxbai-embed-large
+env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull llama3.1
+env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull mxbai-embed-large
 
 # 6. Create host-level .env file
 echo "Creating .env file pointing to localhost..."
