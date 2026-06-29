@@ -249,15 +249,12 @@ class RAGQueryEngine:
         except Exception:
             institution_name = request.institution_slug.upper()
 
-        # Step 2 — Query translation (if not english)
-        english_query = request.query
-        if request.language != "en":
-            english_query = await self._translate_text(
-                text=request.query,
-                source_or_target=request.language,
-                to_english=True,
-            )
-            logger.info(f"Translated query '{request.query}' to English: '{english_query}'")
+        # Step 2 — Query processing
+        # NOTE: Queries are expected to be in English.
+        # The 'language' parameter controls the RESPONSE language, not the input.
+        # If multilingual query input is needed, add separate input_language field.
+        english_query = request.query.strip()
+        logger.info(f"Processing query: '{english_query}' for language: {request.language}")
 
         # Step 3 — Embed query
         try:
