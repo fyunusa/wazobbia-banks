@@ -202,6 +202,22 @@ class BaseScraper(ABC):
         """Returns a random high-quality browser User-Agent."""
         return random.choice(USER_AGENTS)
 
+    def get_browser_headers(self, user_agent: str) -> Dict[str, str]:
+        """Returns realistic browser headers to bypass WAF/bot detection."""
+        return {
+            "User-Agent": user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Cache-Control": "max-age=0",
+        }
+
     async def _is_allowed_by_robots(self, url: str, user_agent: str) -> bool:
         """Validates if the target URL is permitted by robots.txt rules."""
         parsed_url = urllib.parse.urlparse(url)
@@ -212,7 +228,7 @@ class BaseScraper(ABC):
             rp = RobotFileParser()
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    headers = {"User-Agent": user_agent}
+                    headers = self.get_browser_headers(user_agent)
                     resp = await client.get(robots_url, headers=headers)
                     if resp.status_code == 200:
                         rp.parse(resp.text.splitlines())
@@ -227,15 +243,17 @@ class BaseScraper(ABC):
         return _robots_cache[base_url].can_fetch(user_agent, url)
 
     async def _enforce_rate_limit(self, domain: str) -> None:
-        """Throttles requests to respect rate-limiting parameters (2 req/sec = 0.5s intervals)."""
+        """Throttles requests to respect rate-limiting parameters (1 req/sec = 1s intervals)."""
         if domain not in _domain_semaphores:
-            _domain_semaphores[domain] = asyncio.Semaphore(2)
+            _domain_semaphores[domain] = asyncio.Semaphore(1)
 
-        # Ensure sequence spacing of 0.5 seconds
+        # Ensure sequence spacing of 1 second + random jitter (0-500ms)
         async with _domain_semaphores[domain]:
             last_time = _last_request_times.get(domain, 0.0)
             now = time.time()
-            wait_time = 0.5 - (now - last_time)
+            base_wait = 1.0 - (now - last_time)
+            jitter = random.uniform(0, 0.5)  # Add 0-500ms random jitter
+            wait_time = base_wait + jitter
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
             _last_request_times[domain] = time.time()
@@ -297,7 +315,7 @@ class BaseScraper(ABC):
         for attempt in range(1, retries + 1):
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
-                    headers = {"User-Agent": user_agent}
+                    headers = self.get_browser_headers(user_agent)
                     response = await client.get(url, headers=headers, follow_redirects=True)
                     elapsed = time.time() - start_time
 
@@ -389,7 +407,7 @@ class BaseScraper(ABC):
         try:
             user_agent = self.get_random_user_agent()
             async with httpx.AsyncClient(timeout=10.0) as client:
-                headers = {"User-Agent": user_agent}
+                headers = self.get_browser_headers(user_agent)
                 resp = await client.get(url, headers=headers, follow_redirects=True)
                 final_url = str(resp.url)
                 logger.info(f"Resolved Google News redirect to: {final_url}")
@@ -411,7 +429,7 @@ class BaseScraper(ABC):
         
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.get(rss_url, headers={"User-Agent": user_agent})
+                resp = await client.get(rss_url, headers=self.get_browser_headers(user_agent))
                 if resp.status_code != 200:
                     logger.warning(f"Failed to fetch news feed for {bank_name} - Status: {resp.status_code}")
                     return results

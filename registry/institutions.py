@@ -45,78 +45,78 @@ INSTITUTIONS: Dict[str, Institution] = {
             ScrapeTarget(
                 url="https://www.gtbank.com/help-centre/bank-charges",
                 category="fees",
-                requires_js=True,  # Changed: GTBank pages need JavaScript
+                requires_js=False,  # Revert: GTBank blocks bots even with Playwright
                 notes="GTBank tariff and charges information",
             ),
             # FAQs
             ScrapeTarget(
                 url="https://www.gtbank.com/help-centre/faqs",
                 category="faq",
-                requires_js=True,  # Changed: FAQs are JavaScript-rendered
+                requires_js=False,  # Revert: Use httpx with better headers
                 notes="Frequently asked questions",
             ),
             # Personal Banking Products
             ScrapeTarget(
                 url="https://www.gtbank.com/personal-banking/cards",
                 category="products",
-                requires_js=True,  # Changed: All GTBank product pages need JS
+                requires_js=False,
             ),
             ScrapeTarget(
                 url="https://www.gtbank.com/personal-banking/loans-and-advances",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             ScrapeTarget(
                 url="https://www.gtbank.com/personal-banking/accounts",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             # Business Banking
             ScrapeTarget(
                 url="https://www.gtbank.com/business-banking",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             ScrapeTarget(
                 url="https://www.gtbank.com/business-banking/products",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             # Corporate Banking
             ScrapeTarget(
                 url="https://www.gtbank.com/corporate-banking",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             # Investment Services
             ScrapeTarget(
                 url="https://www.gtbank.com/investment-services",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             # Digital Banking
             ScrapeTarget(
                 url="https://www.gtbank.com/digital-banking",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
             # Help Centre
             ScrapeTarget(
                 url="https://www.gtbank.com/help-centre",
                 category="faq",
-                requires_js=True,
+                requires_js=False,
             ),
             # About GTBank
             ScrapeTarget(
                 url="https://www.gtbank.com/about",
                 category="regulatory",
-                requires_js=True,
+                requires_js=False,
             ),
             # Services
             ScrapeTarget(
                 url="https://www.gtbank.com/services",
                 category="products",
-                requires_js=True,
+                requires_js=False,
             ),
         ],
         logo_slug="gtbank",
