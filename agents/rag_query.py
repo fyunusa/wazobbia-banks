@@ -342,8 +342,8 @@ class RAGQueryEngine:
 
         context = "\n---\n".join(context_parts)
 
-        # Step 6 — LLM generation
-        system_prompt = build_system_prompt(request.institution_slug, request.language)
+        # Step 6 — LLM generation (ALWAYS in English, llama3.1 doesn't speak low-resource languages)
+        system_prompt = build_system_prompt(request.institution_slug, "en")  # Always generate in English
         user_message = f"Context:\n{context}\n\nQuestion: {english_query}"
 
         try:
@@ -364,8 +364,10 @@ class RAGQueryEngine:
             logger.error(f"LLM Chat completion failed: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"LLM generation error: {e}")
 
-        # Step 7 — Translate response (if requested language not English)
+        # Step 7 — Translate response to target language (if not English)
+        # llama3.1 can only generate in English, so we translate the English answer
         if request.language != "en":
+            logger.info(f"Translating answer from English to {request.language}")
             answer = await self._translate_text(
                 text=answer,
                 source_or_target=request.language,
