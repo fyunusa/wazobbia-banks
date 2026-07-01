@@ -94,8 +94,9 @@ class Embedder:
                 logger.error(f"Offline fallback embedding failure: {e}")
                 raise
 
-        backoff = 1.0
-        for attempt in range(4):
+        backoff = 2.0  # Start with 2 second backoff for rate limits
+        max_attempts = 10  # Increased from 4 to handle rate limiting better
+        for attempt in range(max_attempts):
             try:
                 # Validate and clean texts before sending to Cohere
                 cleaned_texts = []
@@ -143,9 +144,9 @@ class Embedder:
                     }
                     resp = await client.post("https://api.cohere.com/v1/embed", json=payload, headers=headers)
                     if resp.status_code == 429:
-                        logger.warning(f"Cohere rate limit hit. Retrying in {backoff:.2f}s...")
+                        logger.warning(f"Cohere rate limit hit (attempt {attempt + 1}/{max_attempts}). Retrying in {backoff:.2f}s...")
                         await asyncio.sleep(backoff)
-                        backoff *= 2
+                        backoff *= 1.5  # Exponential backoff
                         continue
                     if resp.status_code == 400:
                         # Log diagnostic info
@@ -165,10 +166,11 @@ class Embedder:
                         return embeddings["float"]
                     return embeddings
             except Exception as e:
-                logger.error(f"Cohere embedding failure: {e}")
-                raise
+                logger.error(f"Cohere embedding failure (attempt {attempt + 1}/{max_attempts}): {e}")
+                if attempt == max_attempts - 1:
+                    raise
 
-        raise Exception("Failed to generate Cohere embeddings after multiple retries.")
+        raise Exception(f"Failed to generate Cohere embeddings after {max_attempts} attempts.")
 
     def _embed_bge_batch(self, texts: List[str]) -> List[List[float]]:
         """Inferences offline BGE-M3 local model on CPU."""
@@ -221,12 +223,15 @@ class Embedder:
 
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i : i + batch_size]
-            logger.info(f"Processing embedding batch of size {len(batch_texts)} using backend: {self.backend}")
+            logger.info(f"Processing embedding batch {i // batch_size + 1} of size {len(batch_texts)} using backend: {self.backend}")
 
             if self.backend == "openai":
                 batch_embeds = await self._embed_openai_batch(batch_texts)
             elif self.backend == "cohere":
                 batch_embeds = await self._embed_cohere_batch(batch_texts)
+                # Rate limit: add delay between Cohere batches to avoid 429 errors
+                if i + batch_size < len(texts):
+                    await asyncio.sleep(2.0)
             elif self.backend == "bge":
                 # CPU-bound inference run in system executors to prevent blockages
                 loop = asyncio.get_running_loop()
