@@ -197,7 +197,10 @@ class Embedder:
             return sentence_embeddings.tolist()
 
     async def embed_chunks(self, chunks: List[Chunk]) -> List[KnowledgePoint]:
-        """Batches and embeds a list of chunks, mapping them into KnowledgePoints."""
+        """Batches and embeds a list of chunks, mapping them into KnowledgePoints.
+        
+        Uses staged processing with delays to avoid rate limiting on external APIs.
+        """
         if not chunks:
             return []
 
@@ -218,30 +221,51 @@ class Embedder:
             return []
 
         texts = [c.content for c in valid_chunks]
-        batch_size = 25  # Reduce from 100 to 25 to avoid Cohere payload limits
+        batch_size = 15  # Further reduced for gradual processing
+        stage_size = 60  # Process 60 chunks per stage, then wait
         embeddings: List[List[float]] = []
+        
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+        stage_delay = 30.0 if self.backend == "cohere" else 0  # 30s delay between stages for Cohere
 
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i : i + batch_size]
-            logger.info(f"Processing embedding batch {i // batch_size + 1} of size {len(batch_texts)} using backend: {self.backend}")
+        for stage in range(0, len(texts), stage_size):
+            stage_texts = texts[stage : stage + stage_size]
+            stage_chunks = valid_chunks[stage : stage + stage_size]
+            stage_num = stage // stage_size + 1
+            total_stages = (len(texts) + stage_size - 1) // stage_size
+            
+            logger.info(f"Starting embedding stage {stage_num}/{total_stages} ({len(stage_texts)} texts)")
+            
+            for i in range(0, len(stage_texts), batch_size):
+                batch_texts = stage_texts[i : i + batch_size]
+                batch_num = (stage + i) // batch_size + 1
+                
+                logger.info(f"Processing batch {batch_num}/{total_batches} of size {len(batch_texts)} "
+                           f"(stage {stage_num}/{total_stages})")
 
-            if self.backend == "openai":
-                batch_embeds = await self._embed_openai_batch(batch_texts)
-            elif self.backend == "cohere":
-                batch_embeds = await self._embed_cohere_batch(batch_texts)
-                # Rate limit: add delay between Cohere batches to avoid 429 errors
-                if i + batch_size < len(texts):
-                    await asyncio.sleep(2.0)
-            elif self.backend == "bge":
-                # CPU-bound inference run in system executors to prevent blockages
-                loop = asyncio.get_running_loop()
-                batch_embeds = await loop.run_in_executor(
-                    None, self._embed_bge_batch, batch_texts
-                )
-            else:
-                raise ValueError(f"Unsupported embedding backend config: {self.backend}")
+                if self.backend == "openai":
+                    batch_embeds = await self._embed_openai_batch(batch_texts)
+                elif self.backend == "cohere":
+                    batch_embeds = await self._embed_cohere_batch(batch_texts)
+                    # Rate limit: add delay between Cohere batches to avoid 429 errors
+                    if i + batch_size < len(stage_texts):
+                        await asyncio.sleep(1.0)
+                elif self.backend == "bge":
+                    # CPU-bound inference run in system executors to prevent blockages
+                    loop = asyncio.get_running_loop()
+                    batch_embeds = await loop.run_in_executor(
+                        None, self._embed_bge_batch, batch_texts
+                    )
+                else:
+                    raise ValueError(f"Unsupported embedding backend config: {self.backend}")
 
-            embeddings.extend(batch_embeds)
+                embeddings.extend(batch_embeds)
+            
+            # Add delay between stages to allow rate limit recovery
+            if stage + stage_size < len(texts) and stage_delay > 0:
+                logger.info(f"Completed stage {stage_num}/{total_stages}. "
+                           f"Waiting {stage_delay:.0f}s before next stage...")
+                await asyncio.sleep(stage_delay)
 
         knowledge_points = []
         for chunk, vector in zip(valid_chunks, embeddings):
