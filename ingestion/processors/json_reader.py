@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from store.models import RawDocument
+from ingestion.scrapers.base_scraper import RawDocument
 
 logger = logging.getLogger("ingestion.processors.json_reader")
 
