@@ -396,11 +396,12 @@ async def voice_stream_sse(
             
             # Stream transcript event
             yield f"event: transcript\n"
-            yield f"data: {json.dumps({\
-                'text': normalized_transcript,\
-                'language': detected_lang,\
-                'confidence': stt_result.confidence if hasattr(stt_result, 'confidence') else 0.95\
-            })}\n\n"
+            transcript_data = json.dumps({
+                'text': normalized_transcript,
+                'language': detected_lang,
+                'confidence': stt_result.confidence if hasattr(stt_result, 'confidence') else 0.95
+            })
+            yield f"data: {transcript_data}\n\n"
             
             # 3. Execute RAG query
             rag_start = time.time()
@@ -426,11 +427,12 @@ async def voice_stream_sse(
             
             # Stream response event
             yield f"event: response\n"
-            yield f"data: {json.dumps({\
-                'text': query_response.answer,\
-                'language': detected_lang,\
-                'confidence': query_response.confidence\
-            })}\n\n"
+            response_data = json.dumps({
+                'text': query_response.answer,
+                'language': detected_lang,
+                'confidence': query_response.confidence
+            })
+            yield f"data: {response_data}\n\n"
             
             # 4. Synthesize TTS
             tts_start = time.time()
@@ -451,11 +453,12 @@ async def voice_stream_sse(
                 chunk = tts_result.audio_bytes[i:i + chunk_size]
                 chunk_index = i // chunk_size
                 yield f"event: audio_chunk\n"
-                yield f"data: {json.dumps({\
-                    'audio_base64': base64.b64encode(chunk).decode('utf-8'),\
-                    'chunk_index': chunk_index,\
-                    'is_last': (i + chunk_size >= len(tts_result.audio_bytes))\
-                })}\n\n"
+                audio_chunk_data = json.dumps({
+                    'audio_base64': base64.b64encode(chunk).decode('utf-8'),
+                    'chunk_index': chunk_index,
+                    'is_last': (i + chunk_size >= len(tts_result.audio_bytes))
+                })
+                yield f"data: {audio_chunk_data}\n\n"
                 
                 # Small delay to prevent overwhelming the frontend
                 await asyncio.sleep(0.01)
@@ -463,19 +466,20 @@ async def voice_stream_sse(
             # 5. Send completion event
             total_latency = (time.time() - start_time) * 1000
             yield f"event: completed\n"
-            yield f"data: {json.dumps({\
-                'transcript': normalized_transcript,\
-                'answer': query_response.answer,\
-                'language': detected_lang,\
-                'institution': institution_slug,\
-                'sources': query_response.sources,\
-                'stt_engine': stt_result.engine_used,\
-                'tts_engine': tts_result.engine_used,\
-                'latency_ms': int(total_latency),\
-                'stt_latency_ms': int(stt_latency),\
-                'rag_latency_ms': int(rag_latency),\
-                'tts_latency_ms': int(tts_latency)\
-            })}\n\n"
+            completion_data = json.dumps({
+                'transcript': normalized_transcript,
+                'answer': query_response.answer,
+                'language': detected_lang,
+                'institution': institution_slug,
+                'sources': query_response.sources,
+                'stt_engine': stt_result.engine_used,
+                'tts_engine': tts_result.engine_used,
+                'latency_ms': int(total_latency),
+                'stt_latency_ms': int(stt_latency),
+                'rag_latency_ms': int(rag_latency),
+                'tts_latency_ms': int(tts_latency)
+            })
+            yield f"data: {completion_data}\n\n"
             
             # Log metrics
             wazobia_voice_requests_total.labels(
