@@ -104,6 +104,38 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    from fastapi.openapi.utils import get_openapi
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        routes=app.routes,
+    )
+    
+    # Recursive helper to replace contentMediaType with format: binary for Swagger UI file pickers
+    def patch_schema(d):
+        if isinstance(d, dict):
+            if d.get("contentMediaType") == "application/octet-stream":
+                d.pop("contentMediaType", None)
+                d["format"] = "binary"
+            for v in list(d.values()):
+                patch_schema(v)
+        elif isinstance(d, list):
+            for item in d:
+                patch_schema(item)
+                
+    patch_schema(openapi_schema)
+    app.openapi_schema = openapi_schema
+    return openapi_schema
+
+
+app.openapi = custom_openapi
+
+
 # CORS Middleware config
 app.add_middleware(
     CORSMiddleware,
