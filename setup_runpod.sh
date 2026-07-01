@@ -35,6 +35,11 @@ if [ ! -f ./qdrant ]; then
     chmod +x qdrant
 fi
 
+# Kill any existing Qdrant processes and restart
+echo "Restarting Qdrant..."
+pkill -f "^\./qdrant" || true
+sleep 2
+
 # Run Qdrant in the background
 # Note: Qdrant stores data in current working directory by default
 # We've already created data/qdrant above, so it will use that
@@ -53,6 +58,15 @@ fi
 OLLAMA_MODELS_DIR="$(pwd)/ollama_models"
 mkdir -p "$OLLAMA_MODELS_DIR"
 chmod 755 "$OLLAMA_MODELS_DIR"
+
+# Kill any existing Ollama processes
+echo "Cleaning up existing Ollama processes..."
+pkill -f "ollama serve" || true
+sleep 2
+
+# Kill any process on port 11434
+lsof -ti:11434 | xargs kill -9 2>/dev/null || true
+sleep 1
 
 # Start Ollama in background with explicit models directory
 echo "Starting Ollama with models directory: $OLLAMA_MODELS_DIR"
@@ -77,9 +91,10 @@ if ! kill -0 $OLLAMA_PID 2>/dev/null; then
     exit 1
 fi
 
-echo "Ollama is ready. Pulling models (this may take a few minutes)..."
-env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull llama3.1
-env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull mxbai-embed-large
+echo "Ollama is ready. Checking and pulling models (this may take a few minutes)..."
+# Only pull if models don't already exist
+env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull llama3.1 || echo "llama3.1 already present"
+env OLLAMA_MODELS="$OLLAMA_MODELS_DIR" ollama pull mxbai-embed-large || echo "mxbai-embed-large already present"
 
 # 6. Create host-level .env file
 echo "Creating .env file pointing to localhost..."
@@ -120,11 +135,16 @@ sed -i "s/PLACEHOLDER_COHERE_KEY/$COHERE_KEY/g" .env
 
 # 7. Setup virtual environment and dependencies
 echo "Setting up Python virtual environment..."
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install uv
-uv pip install -r pyproject.toml
+if [ ! -f .venv/bin/activate ]; then
+    python3 -m venv .venv
+    source .venv/bin/activate
+    pip install --upgrade pip
+    pip install uv
+    uv pip install -r pyproject.toml
+else
+    echo "Virtual environment already exists, skipping..."
+    source .venv/bin/activate
+fi
 
 # 8. Run Alembic Database Migrations
 echo "Running database migrations..."
