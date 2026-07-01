@@ -256,8 +256,9 @@ class RAGQueryEngine:
         english_query = request.query.strip()
         logger.info(f"Processing query: '{english_query}' for language: {request.language}")
 
-        # Step 3 — Embed query
+        # Step 3 — Embed query (with rate limit protection)
         try:
+            await asyncio.sleep(0.5)  # Rate limit queries to Cohere API
             query_vector = await self.embedder.embed_query(english_query)
         except Exception as e:
             logger.error(f"Query embedding generation failed: {e}")

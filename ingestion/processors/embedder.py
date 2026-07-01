@@ -315,8 +315,9 @@ class Embedder:
                     logger.error(f"Offline fallback query embedding failure: {e}")
                     raise
 
-            backoff = 1.0
-            for attempt in range(4):
+            backoff = 2.0
+            max_attempts = 10
+            for attempt in range(max_attempts):
                 try:
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         headers = {
@@ -331,8 +332,9 @@ class Embedder:
                         }
                         resp = await client.post("https://api.cohere.com/v1/embed", json=payload, headers=headers)
                         if resp.status_code == 429:
+                            logger.warning(f"Query embedding rate limited (attempt {attempt+1}/{max_attempts}), backoff: {backoff}s")
                             await asyncio.sleep(backoff)
-                            backoff *= 2
+                            backoff *= 1.5  # Smoother exponential backoff
                             continue
                         resp.raise_for_status()
                         data = resp.json()
@@ -340,10 +342,15 @@ class Embedder:
                         if isinstance(embeddings, dict) and "float" in embeddings:
                             return embeddings["float"][0]
                         return embeddings[0]
-                except Exception as e:
-                    logger.error(f"Cohere embedding query failure: {e}")
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 429:
+                        continue  # Will be caught in next iteration
+                    logger.error(f"Cohere query embedding HTTP error: {e}")
                     raise
-            raise Exception("Failed to generate Cohere query embedding after retries.")
+                except Exception as e:
+                    logger.error(f"Cohere query embedding failure: {e}")
+                    raise
+            raise Exception("Failed to generate Cohere query embedding after 10 retries.")
         elif self.backend == "bge":
             loop = asyncio.get_running_loop()
             res = await loop.run_in_executor(None, self._embed_bge_batch, [text])
