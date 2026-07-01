@@ -298,6 +298,217 @@ async def voice_query(
     )
 
 
+@router.post(
+    "/voice/stream-sse",
+    summary="Stream Voice Query via Server-Sent Events",
+    description="""
+    Streams voice query processing via Server-Sent Events (SSE).
+    
+    Returns transcript, text response, and audio chunks progressively as they're generated.
+    Better latency perception for frontend users since chunks stream incrementally.
+    
+    Events:
+    - transcript: Recognized speech text + language + confidence
+    - response: RAG text answer for the query
+    - audio_chunk: Base64-encoded WAV audio chunk (playable progressively)
+    - completed: Final summary with latency and sources
+    """,
+    dependencies=[Depends(voice_limiter)],
+)
+async def voice_stream_sse(
+    request: Request,
+    audio: UploadFile = File(..., description="Audio file (WAV, WebM, MP3, OGG, max 10MB)"),
+    institution_slug: str = Form(..., description="Target institution slug"),
+    preferred_language: str = Form("auto", description="Language: auto, en, ha, yo, ig, pcm"),
+    gender: str = Form("female", description="Voice gender: male or female"),
+    user_id: Optional[str] = Form(None, description="Optional user identifier"),
+    qdrant: QdrantStore = Depends(get_qdrant_store),
+    embedder: Embedder = Depends(get_embedder),
+    redis: RedisStore = Depends(get_redis_store),
+    openai_client: AsyncOpenAI = Depends(get_openai_client),
+):
+    """
+    Stream voice query response via Server-Sent Events (SSE).
+    Frontend receives: transcript → response text → audio chunks → completion.
+    """
+    start_time = time.time()
+    
+    # Validate institution
+    try:
+        institution = get_institution(institution_slug)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    
+    # Validate gender
+    gender_choice = gender.lower().strip()
+    if gender_choice not in ("male", "female"):
+        raise HTTPException(status_code=400, detail=f"Invalid gender: {gender}")
+    
+    # Validate audio size
+    audio.file.seek(0, 2)
+    file_size = audio.file.tell()
+    audio.file.seek(0)
+    if file_size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio exceeds 10MB limit")
+    
+    # Read and validate audio
+    audio_bytes = await audio.read()
+    validate_audio_magic_bytes(audio_bytes)
+    try:
+        pcm_wav_bytes = validate_and_convert_audio(audio_bytes)
+    except Exception as e:
+        logger.error(f"Audio preprocessing failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid audio format")
+    
+    async def event_stream():
+        """Generator for SSE events."""
+        try:
+            # 1. Transcribe audio (STT)
+            stt_start = time.time()
+            whisper_engine = WhisperSTTEngine()
+            mms_engine = MMSSTTEngine()
+            
+            lang = preferred_language.lower().strip()
+            try:
+                if lang in ("en", "pcm") or lang == "auto":
+                    lang_hint = None if lang == "auto" else lang
+                    stt_result = await whisper_engine.transcribe(pcm_wav_bytes, language_hint=lang_hint)
+                    detected_lang = stt_result.detected_language
+                elif lang in ("ha", "yo", "ig"):
+                    stt_result = await mms_engine.transcribe(pcm_wav_bytes, language_hint=lang)
+                    detected_lang = lang
+                else:
+                    raise ValueError(f"Unsupported language: {preferred_language}")
+            except Exception as e:
+                logger.error(f"STT failed: {e}")
+                yield f"event: error\ndata: {json.dumps({'error': 'Speech transcription failed'})}\n\n"
+                return
+            
+            stt_latency = (time.time() - stt_start) * 1000
+            
+            # 2. Normalize transcript
+            normalizer = TranscriptNormalizer()
+            normalized_transcript = normalizer.normalize(stt_result.transcript, detected_lang)
+            
+            if not normalized_transcript:
+                yield f"event: error\ndata: {json.dumps({'error': 'No speech detected'})}\n\n"
+                return
+            
+            # Stream transcript event
+            yield f"event: transcript\n"
+            yield f"data: {json.dumps({\
+                'text': normalized_transcript,\
+                'language': detected_lang,\
+                'confidence': stt_result.confidence if hasattr(stt_result, 'confidence') else 0.95\
+            })}\n\n"
+            
+            # 3. Execute RAG query
+            rag_start = time.time()
+            engine = RAGQueryEngine(
+                qdrant=qdrant,
+                embedder=embedder,
+                redis_store=redis,
+                openai_client=openai_client,
+            )
+            query_req = QueryRequest(
+                query=normalized_transcript,
+                institution_slug=institution_slug,
+                language=detected_lang,
+            )
+            try:
+                query_response = await engine.query(query_req)
+            except Exception as e:
+                logger.error(f"RAG query failed: {e}")
+                yield f"event: error\ndata: {json.dumps({'error': 'Search failed'})}\n\n"
+                return
+            
+            rag_latency = (time.time() - rag_start) * 1000
+            
+            # Stream response event
+            yield f"event: response\n"
+            yield f"data: {json.dumps({\
+                'text': query_response.answer,\
+                'language': detected_lang,\
+                'confidence': query_response.confidence\
+            })}\n\n"
+            
+            # 4. Synthesize TTS
+            tts_start = time.time()
+            tts_router = TTSRouter()
+            try:
+                tts_result = await tts_router.synthesize(query_response.answer, detected_lang, gender_choice)
+            except Exception as e:
+                logger.error(f"TTS failed: {e}")
+                yield f"event: error\ndata: {json.dumps({'error': 'TTS synthesis failed'})}\n\n"
+                return
+            
+            tts_latency = (time.time() - tts_start) * 1000
+            
+            # Stream audio chunks (split into 4KB chunks for streaming)
+            import base64
+            chunk_size = 4096
+            for i in range(0, len(tts_result.audio_bytes), chunk_size):
+                chunk = tts_result.audio_bytes[i:i + chunk_size]
+                chunk_index = i // chunk_size
+                yield f"event: audio_chunk\n"
+                yield f"data: {json.dumps({\
+                    'audio_base64': base64.b64encode(chunk).decode('utf-8'),\
+                    'chunk_index': chunk_index,\
+                    'is_last': (i + chunk_size >= len(tts_result.audio_bytes))\
+                })}\n\n"
+                
+                # Small delay to prevent overwhelming the frontend
+                await asyncio.sleep(0.01)
+            
+            # 5. Send completion event
+            total_latency = (time.time() - start_time) * 1000
+            yield f"event: completed\n"
+            yield f"data: {json.dumps({\
+                'transcript': normalized_transcript,\
+                'answer': query_response.answer,\
+                'language': detected_lang,\
+                'institution': institution_slug,\
+                'sources': query_response.sources,\
+                'stt_engine': stt_result.engine_used,\
+                'tts_engine': tts_result.engine_used,\
+                'latency_ms': int(total_latency),\
+                'stt_latency_ms': int(stt_latency),\
+                'rag_latency_ms': int(rag_latency),\
+                'tts_latency_ms': int(tts_latency)\
+            })}\n\n"
+            
+            # Log metrics
+            wazobia_voice_requests_total.labels(
+                stt_engine=stt_result.engine_used,
+                tts_engine=tts_result.engine_used,
+                language=detected_lang
+            ).inc()
+            
+            logger.info(
+                f"Voice SSE stream completed for {institution_slug}",
+                extra={
+                    "stt_engine": stt_result.engine_used,
+                    "tts_engine": tts_result.engine_used,
+                    "language": detected_lang,
+                    "total_latency_ms": int(total_latency),
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"SSE stream error: {e}", exc_info=True)
+            yield f"event: error\ndata: {json.dumps({'error': 'Internal processing error'})}\n\n"
+    
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        }
+    )
+
+
 @router.websocket("/voice/stream/{institution_slug}")
 async def websocket_voice_stream(
     websocket: WebSocket,
