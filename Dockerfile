@@ -32,9 +32,26 @@ FROM python:3.11-slim-bookworm AS runner
 RUN groupadd -g 1000 wazobia && \
     useradd -m -u 1000 -g wazobia wazobia
 
-# Install ffmpeg for torchcodec/torchaudio decoding
+# Install ffmpeg for torchcodec/torchaudio decoding and Playwright dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libnspr4 \
+    libnss3 \
+    libdbus-1-3 \
+    libx11-6 \
+    libxcb1 \
+    libxext6 \
+    libxfixes3 \
+    libxdamage1 \
+    libxcomposite1 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libatk1.0-0 \
+    libxkbcommon0 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

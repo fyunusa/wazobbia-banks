@@ -1,0 +1,109 @@
+{
+  "slug": "gtbank",
+  "name": "Guaranty Trust Bank",
+  "base_urls": [
+    "https://www.gtbank.com"
+  ],
+  "scrape_targets": [
+    {
+      "url": "https://www.gtbank.com/personal-banking/cards",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Card products"
+    },
+    {
+      "url": "https://www.gtbank.com/personal-banking/accounts",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Account products"
+    },
+    {
+      "url": "https://www.gtbank.com/personal-banking/loans-and-advances",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Loans and advances"
+    },
+    {
+      "url": "https://www.gtbank.com/business-banking",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Business banking"
+    },
+    {
+      "url": "https://www.gtbank.com/corporate-banking",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Corporate banking"
+    },
+    {
+      "url": "https://www.gtbank.com/investment-services",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Investment services"
+    },
+    {
+      "url": "https://www.gtbank.com/digital-banking",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Digital banking services"
+    },
+    {
+      "url": "https://www.gtbank.com/help-centre/bank-charges",
+      "category": "fees",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Bank charges and fees"
+    },
+    {
+      "url": "https://www.gtbank.com/help-centre/faqs",
+      "category": "faq",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Frequently asked questions"
+    },
+    {
+      "url": "https://www.gtbank.com/help-centre",
+      "category": "faq",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Help centre main page"
+    }
+  ],
+  "keywords": {
+    "fees": [
+      "fee", "charge", "tariff", "pricing", "cost", "payment",
+      "maintenance", "guide", "limit", "price", "commission", "service",
+      "rate", "atm", "card", "transfer", "debit", "credit", "swift",
+      "account", "bank", "daily", "monthly", "charges"
+    ],
+    "faq": [
+      "faq", "frequently", "help", "support", "question", "guide",
+      "center", "centre", "contact", "how", "what", "why", "when",
+      "get", "know", "learn", "find", "see", "understand"
+    ],
+    "products": [
+      "account", "savings", "current", "card", "loan", "deposit",
+      "transfer", "app", "ussd", "personal", "business", "product",
+      "service", "solution", "investment", "credit", "digital", "online",
+      "banking", "payment", "insurance", "fund", "gtworld"
+    ]
+  },
+  "exclude_patterns": [
+    "/admin", "/login", "/account/login", "/user/", "/profile",
+    "/settings", "/api/", "/logout", "/search", "/contact-us",
+    "/privacy", "/terms", "/cookie", "/careers", "/investor"
+  ],
+  "rate_limit": {
+    "requests_per_second": 1,
+    "jitter_ms": 500
+  },
+  "max_sub_links": 200,
+  "notes": "GTBank has WAF protection - use realistic headers and slow rate. Increased max_sub_links to 200 for comprehensive coverage"
+}

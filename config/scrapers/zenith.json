@@ -1,0 +1,51 @@
+{
+  "slug": "zenith",
+  "name": "Zenith Bank PLC",
+  "base_urls": [
+    "https://www.zenithbank.com"
+  ],
+  "scrape_targets": [
+    {
+      "url": "https://www.zenithbank.com/customer-service/tariff-guide",
+      "category": "fees",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Tariff guide and charges"
+    },
+    {
+      "url": "https://www.zenithbank.com/customer-service/faq",
+      "category": "faq",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "FAQs"
+    },
+    {
+      "url": "https://www.zenithbank.com/personal",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 3,
+      "notes": "Personal banking"
+    },
+    {
+      "url": "https://www.zenithbank.com/business",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 3,
+      "notes": "Business banking"
+    }
+  ],
+  "keywords": {
+    "fees": ["fee", "charge", "tariff", "pricing", "rate", "cost", "payment", "atm", "card"],
+    "faq": ["faq", "help", "support", "question", "guide", "contact"],
+    "products": ["account", "savings", "card", "loan", "deposit", "transfer", "service", "product"]
+  },
+  "exclude_patterns": [
+    "/admin", "/login", "/user", "/profile", "/settings", "/api", "/careers", "/terms"
+  ],
+  "rate_limit": {
+    "requests_per_second": 1,
+    "jitter_ms": 500
+  },
+  "max_sub_links": 50,
+  "notes": "Zenith Bank - standard WAF protection"
+}

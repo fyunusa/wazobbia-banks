@@ -1,0 +1,45 @@
+{
+  "slug": "opay",
+  "name": "OPay",
+  "base_urls": [
+    "https://opayweb.com",
+    "https://opay.ng"
+  ],
+  "scrape_targets": [
+    {
+      "url": "https://opayweb.com/pricing",
+      "category": "fees",
+      "requires_js": true,
+      "max_depth": 2,
+      "notes": "Pricing page"
+    },
+    {
+      "url": "https://opayweb.com/help",
+      "category": "faq",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Help section"
+    },
+    {
+      "url": "https://opayweb.com/products",
+      "category": "products",
+      "requires_js": true,
+      "max_depth": 3,
+      "notes": "Products overview"
+    }
+  ],
+  "keywords": {
+    "fees": ["price", "fee", "charge", "cost", "plan", "rate"],
+    "faq": ["help", "faq", "support", "guide", "tutorial"],
+    "products": ["save", "spend", "send", "transfer", "card", "account", "service"]
+  },
+  "exclude_patterns": [
+    "/admin", "/api", "/user", "/login", "/careers"
+  ],
+  "rate_limit": {
+    "requests_per_second": 1,
+    "jitter_ms": 500
+  },
+  "max_sub_links": 30,
+  "notes": "OPay is fintech - uses JavaScript heavily, fewer static pages"
+}

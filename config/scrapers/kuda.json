@@ -1,0 +1,44 @@
+{
+  "slug": "kuda",
+  "name": "Kuda Bank",
+  "base_urls": [
+    "https://www.kuda.com"
+  ],
+  "scrape_targets": [
+    {
+      "url": "https://www.kuda.com/pricing",
+      "category": "fees",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Pricing and fees"
+    },
+    {
+      "url": "https://www.kuda.com/help",
+      "category": "faq",
+      "requires_js": false,
+      "max_depth": 2,
+      "notes": "Help center"
+    },
+    {
+      "url": "https://www.kuda.com/products",
+      "category": "products",
+      "requires_js": false,
+      "max_depth": 3,
+      "notes": "Products"
+    }
+  ],
+  "keywords": {
+    "fees": ["price", "fee", "charge", "cost", "free", "plan"],
+    "faq": ["help", "faq", "support", "guide", "question"],
+    "products": ["save", "spend", "borrow", "transfer", "account", "card"]
+  },
+  "exclude_patterns": [
+    "/admin", "/api", "/user", "/login", "/careers"
+  ],
+  "rate_limit": {
+    "requests_per_second": 1,
+    "jitter_ms": 500
+  },
+  "max_sub_links": 40,
+  "notes": "Kuda - fintech bank with straightforward site structure"
+}
