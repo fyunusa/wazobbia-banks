@@ -102,17 +102,33 @@ class Embedder:
                 for text in texts:
                     if not text or not isinstance(text, str):
                         continue
-                    # Remove excessive whitespace and truncate very long texts (Cohere has token limits)
+                    
+                    # Remove excessive whitespace
                     text = text.strip()
+                    
+                    # Remove control characters and problematic Unicode
+                    try:
+                        # Encode to UTF-8 and back to ensure valid encoding
+                        text = text.encode('utf-8', errors='ignore').decode('utf-8')
+                        # Remove any remaining control characters (ASCII 0-31, 127)
+                        text = ''.join(c if ord(c) >= 32 or c in '\n\t\r' else '' for c in text)
+                        # Normalize whitespace
+                        text = ' '.join(text.split())
+                    except Exception as e:
+                        logger.warning(f"Failed to sanitize text: {e}, skipping")
+                        continue
+                    
+                    # Truncate very long texts (Cohere has token limits ~4096)
                     if len(text) > 4000:
                         text = text[:4000]
+                    
                     if text:  # Only keep non-empty after cleaning
                         cleaned_texts.append(text)
                 
                 if not cleaned_texts:
                     raise ValueError(f"No valid text content to embed after cleaning (received {len(texts)} texts)")
                 
-                logger.info(f"Embedding {len(cleaned_texts)} cleaned texts via Cohere (filtered from {len(texts)})")
+                logger.info(f"Embedding {len(cleaned_texts)} sanitized texts via Cohere (filtered from {len(texts)})")
                 
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     headers = {
@@ -132,8 +148,15 @@ class Embedder:
                         backoff *= 2
                         continue
                     if resp.status_code == 400:
-                        # Log diagnostic info for 400 errors
-                        logger.error(f"Cohere 400 error. Batch stats: count={len(cleaned_texts)}, lengths={[len(t) for t in cleaned_texts[:5]]}")
+                        # Log diagnostic info
+                        logger.error(f"Cohere 400 error. Batch: count={len(cleaned_texts)}, "
+                                   f"lengths={[len(t) for t in cleaned_texts[:5]]}, "
+                                   f"total_bytes={sum(len(t.encode('utf-8')) for t in cleaned_texts)}")
+                        try:
+                            error_detail = resp.text()
+                            logger.error(f"Cohere error response: {error_detail[:500]}")
+                        except:
+                            pass
                     resp.raise_for_status()
                     data = resp.json()
                     # Cohere returns a dictionary with 'embeddings' key containing lists or dicts
