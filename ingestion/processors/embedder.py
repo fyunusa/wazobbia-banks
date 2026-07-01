@@ -156,7 +156,23 @@ class Embedder:
         if not chunks:
             return []
 
-        texts = [c.content for c in chunks]
+        # Filter out empty/whitespace-only content to prevent API rejections
+        valid_chunks = []
+        skipped_empty = 0
+        for chunk in chunks:
+            if chunk.content and chunk.content.strip():
+                valid_chunks.append(chunk)
+            else:
+                skipped_empty += 1
+        
+        if skipped_empty > 0:
+            logger.info(f"Skipped {skipped_empty} empty chunks during embedding")
+        
+        if not valid_chunks:
+            logger.warning("No valid chunks to embed after filtering empty content")
+            return []
+
+        texts = [c.content for c in valid_chunks]
         batch_size = 100
         embeddings: List[List[float]] = []
 
@@ -180,7 +196,7 @@ class Embedder:
             embeddings.extend(batch_embeds)
 
         knowledge_points = []
-        for chunk, vector in zip(chunks, embeddings):
+        for chunk, vector in zip(valid_chunks, embeddings):
             # Resolve display name
             try:
                 inst_name = get_institution(chunk.institution_slug).name
