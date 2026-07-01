@@ -97,13 +97,30 @@ class Embedder:
         backoff = 1.0
         for attempt in range(4):
             try:
+                # Validate and clean texts before sending to Cohere
+                cleaned_texts = []
+                for text in texts:
+                    if not text or not isinstance(text, str):
+                        continue
+                    # Remove excessive whitespace and truncate very long texts (Cohere has token limits)
+                    text = text.strip()
+                    if len(text) > 4000:
+                        text = text[:4000]
+                    if text:  # Only keep non-empty after cleaning
+                        cleaned_texts.append(text)
+                
+                if not cleaned_texts:
+                    raise ValueError(f"No valid text content to embed after cleaning (received {len(texts)} texts)")
+                
+                logger.info(f"Embedding {len(cleaned_texts)} cleaned texts via Cohere (filtered from {len(texts)})")
+                
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     headers = {
                         "Authorization": f"Bearer {settings.COHERE_API_KEY}",
                         "Content-Type": "application/json",
                     }
                     payload = {
-                        "texts": texts,
+                        "texts": cleaned_texts,
                         "model": self.model_name,
                         "input_type": "search_document",
                         "embedding_types": ["float"]
@@ -114,6 +131,9 @@ class Embedder:
                         await asyncio.sleep(backoff)
                         backoff *= 2
                         continue
+                    if resp.status_code == 400:
+                        # Log diagnostic info for 400 errors
+                        logger.error(f"Cohere 400 error. Batch stats: count={len(cleaned_texts)}, lengths={[len(t) for t in cleaned_texts[:5]]}")
                     resp.raise_for_status()
                     data = resp.json()
                     # Cohere returns a dictionary with 'embeddings' key containing lists or dicts
