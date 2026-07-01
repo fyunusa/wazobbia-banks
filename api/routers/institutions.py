@@ -224,19 +224,19 @@ upload_limiter = SlidingWindowRateLimiter("upload", 20, 3600)
 @router.post("/institutions/{slug}/upload", status_code=202, dependencies=[Depends(verify_admin_key), Depends(upload_limiter)])
 async def upload_institution_documents(
     slug: str,
-    file: UploadFile = File(..., description="Select a file to upload (DOCX, JSON, or PDF)"),
+    files: List[UploadFile] = File(..., description="Select files to upload (DOCX, JSON, or PDF)"),
 ):
-    """Upload a document (DOCX, JSON, or PDF) for an institution and trigger ingestion.
+    """Upload one or more documents (DOCX, JSON, or PDF) for an institution and trigger ingestion.
     
-    Accepts a single file of supported format and queues it for processing through
+    Accepts multiple files of supported formats and queues them for processing through
     the standard ingestion pipeline (cleaning, chunking, embedding, Qdrant storage).
     
     Args:
         slug: Institution slug identifier
-        file: File to upload (DOCX, JSON, or PDF format)
+        files: List of files to upload (DOCX, JSON, or PDF format)
         
     Returns:
-        Batch upload response with task ID and file processing details
+        Batch upload response with task ID and all file processing details
     """
     # Validate institution exists
     try:
@@ -244,47 +244,69 @@ async def upload_institution_documents(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     
-    if not file or not file.filename:
-        raise HTTPException(status_code=400, detail="No file provided or file has no filename")
+    if not files or len(files) == 0:
+        raise HTTPException(status_code=400, detail="No files provided")
     
-    # Validate and parse file
+    # Validate and parse files
     parser = UniversalFileParser()
     raw_documents = []
     file_summaries = []
+    errors = []
     
-    try:
-        # Read file content
-        content = await file.read()
+    # Process each file
+    for file in files:
+        if not file or not file.filename:
+            errors.append({"filename": "unknown", "error": "No filename provided"})
+            continue
         
-        if not content:
-            raise HTTPException(status_code=400, detail=f"File {file.filename} is empty")
-        
-        # Limit file size (50MB per file)
-        if len(content) > 50 * 1024 * 1024:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File {file.filename} exceeds 50MB limit"
-            )
-        
-        # Parse the file
-        raw_doc = await parser.parse(content, file.filename, slug)
-        raw_documents.append(raw_doc)
-        
-        file_summaries.append({
-            "filename": file.filename,
-            "content_type": file.content_type,
-            "size_bytes": len(content),
-            "status": "parsed",
-        })
-        
-    except ValueError as e:
-        logger.error(f"Validation error parsing file {file.filename}: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
+        try:
+            # Read file content
+            content = await file.read()
+            
+            if not content:
+                errors.append({
+                    "filename": file.filename,
+                    "error": "File is empty"
+                })
+                continue
+            
+            # Limit file size (50MB per file)
+            if len(content) > 50 * 1024 * 1024:
+                errors.append({
+                    "filename": file.filename,
+                    "error": "File exceeds 50MB limit"
+                })
+                continue
+            
+            # Parse the file
+            raw_doc = await parser.parse(content, file.filename, slug)
+            raw_documents.append(raw_doc)
+            
+            file_summaries.append({
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "size_bytes": len(content),
+                "status": "parsed",
+            })
+            
+        except ValueError as e:
+            logger.error(f"Validation error parsing file {file.filename}: {e}")
+            errors.append({
+                "filename": file.filename,
+                "error": str(e)
+            })
+        except Exception as e:
+            logger.error(f"Error processing file {file.filename}: {e}", exc_info=True)
+            errors.append({
+                "filename": file.filename,
+                "error": f"Failed to process file: {str(e)}"
+            })
+    
+    # Check if at least one file was parsed successfully
+    if not raw_documents:
         raise HTTPException(
             status_code=400,
-            detail=f"Failed to process file {file.filename}: {str(e)}"
+            detail=f"No valid files processed. Errors: {errors}"
         )
     
     # Generate unique batch ID
@@ -299,12 +321,13 @@ async def upload_institution_documents(
     logger.info(
         f"Queued upload ingestion task for {slug}. "
         f"Batch ID: {upload_batch_id}, Task ID: {task.id}, "
-        f"File: {file.filename}",
+        f"Files: {len(file_summaries)} parsed, {len(errors)} errors",
         extra={
             "institution_slug": slug,
             "upload_batch_id": upload_batch_id,
             "task_id": task.id,
-            "file_name": file.filename,
+            "files_parsed": len(file_summaries),
+            "files_errors": len(errors),
         }
     )
     
@@ -313,8 +336,11 @@ async def upload_institution_documents(
         "institution_slug": slug,
         "task_id": task.id,
         "status": "queued",
-        "file": file_summaries[0],
-        "detail": f"Upload batch {upload_batch_id} successfully sent to processing queue.",
+        "files_parsed": len(file_summaries),
+        "files_with_errors": len(errors),
+        "files": file_summaries,
+        "errors": errors if errors else None,
+        "detail": f"Upload batch {upload_batch_id} with {len(file_summaries)} files successfully sent to processing queue.",
     }
 
 
