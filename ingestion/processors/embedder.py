@@ -153,10 +153,10 @@ class Embedder:
                                    f"lengths={[len(t) for t in cleaned_texts[:5]]}, "
                                    f"total_bytes={sum(len(t.encode('utf-8')) for t in cleaned_texts)}")
                         try:
-                            error_detail = resp.text()
-                            logger.error(f"Cohere error response: {error_detail[:500]}")
-                        except:
-                            pass
+                            error_detail = resp.text
+                            logger.error(f"Cohere error response: {error_detail[:1000]}")
+                        except Exception as log_err:
+                            logger.error(f"Could not log error response: {log_err}")
                     resp.raise_for_status()
                     data = resp.json()
                     # Cohere returns a dictionary with 'embeddings' key containing lists or dicts
@@ -216,7 +216,7 @@ class Embedder:
             return []
 
         texts = [c.content for c in valid_chunks]
-        batch_size = 100
+        batch_size = 25  # Reduce from 100 to 25 to avoid Cohere payload limits
         embeddings: List[List[float]] = []
 
         for i in range(0, len(texts), batch_size):
